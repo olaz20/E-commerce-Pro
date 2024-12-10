@@ -1,0 +1,21 @@
+.env
+# Ignore the virtual environment folder (if it’s outside the root directory)
+/venv/
+*.pyc
+*.pyo
+__pycache__/
+
+# Ignore Django migration files
+*.log
+*.sqlite3
+db.sqlite3
+
+# Ignore IDE configurations (optional)
+.vscode/
+.idea/
+
+# Ignore Python cache files
+*.pyc
+
+# Ignore virtualenv, if in a non-root folder like `env`
+/env/
