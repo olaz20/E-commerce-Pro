@@ -117,7 +117,11 @@ class AdminViewSet(ModelViewSet):
 
 
 
-def initiate_payment(amount, email, order_id):
+def initiate_payment(user,amount, email, order_id):
+     # Validate inputs
+    if not all([user, amount, email, order_id]):
+        return Response({"error": "Invalid input parameters"}, status=400)
+    
     url = "https://api.flutterwave.com/v3/payments"
     headers = {
         "Authorization": f"Bearer {settings.FLW_SEC_KEY}"
@@ -130,17 +134,14 @@ def initiate_payment(amount, email, order_id):
         "currency": "NGN",
         "redirect_url": "http:/127.0.0.1:8000/api/orders/confirm_payment/?o_id=" + order_id,
         "meta": {
-            "consumer_id": 23,
-            "consumer_mac": "92a3-912ba-1192a"
+            "consumer_id": user.id,
         },
         "customer": {
             "email": email,
-            "phonenumber": "080****4528",
-            "name": "to be updated"
+            "name": user.username or "Anonymous"
         },
         "customizations": {
-            "title": "Pied Piper Payments",
-            "logo": "http://www.piedpiper.com/app/themes/joystick-v27/images/logo.png"
+            "title": "Olaz Buy",
         }
     }
     
@@ -148,11 +149,15 @@ def initiate_payment(amount, email, order_id):
     try:
         response = requests.post(url, headers=headers, json=data)
         response_data = response.json()
-        return Response(response_data)
+        # Check if Flutterwave returned success
+        if response.status_code == 200 and response_data.get("status") == "success":
+            return Response(response_data, status=200)
+        else:
+            return Response({"error": response_data.get("message", "Payment initiation failed")}, status=400)
+    
     
     except requests.exceptions.RequestException as err:
-        print("the payment didn't go through")
-        return Response({"error": str(err)}, status=500)
+       return Response({"error": f"Payment initiation error: {str(err)}"}, status=500)
 def verify_payment(tx_ref):
         url = "https://api.flutterwave.com/v3/transactions/verify"
         headers = {
