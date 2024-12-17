@@ -5,6 +5,8 @@ from store.models import Cart, Wishlist
 from django.contrib.auth.signals import user_logged_in
 from store.models import StoreUser
 from  django.conf import settings
+from .serializers import *
+from rest_framework.response import Response
 @receiver(post_migrate)
 def create_user_roles(sender, **kwargs):
     admin_group, _ = Group.objects.get_or_create(name='Admin')
@@ -29,28 +31,41 @@ def assign_user_to_group(user, role):
         user.groups.add(group)
     
     # Create admin user with environment variables
-    #user = StoreUser.objects.create_user(username=settings.ADMIN_USERNAME, password=settings.ADMIN_PASSWORD, user_type="admin",email=settings.ADMIN_EMAIL)
-    #assign_user_to_group(user, "Admin")
-        
+#user = StoreUser.objects.create_user(username=settings.ADMIN_USERNAME, password=settings.ADMIN_PASSWORD, user_type="admin",email=settings.ADMIN_EMAIL)
+#assign_user_to_group(user, "Admin")
+
+
+
 @receiver(user_logged_in)
 def merge_carts(sender, request, user, **kwargs):
-    # Check for session-based cart
-    session_id = request.session.session_key
+    # Get the session ID for the user
+    session_id = request.session.session_key or request.session.create()
+
+    # Try to get the session cart (if any)
     session_cart = Cart.objects.filter(session_id=session_id).first()
+
+    # Create or get the user's cart
     user_cart, created = Cart.objects.get_or_create(user=user)
 
-     # Check if the logged-in user is a buyer
-    if user.groups.filter(name="Buyer").exists():
-        user_cart, created = Cart.objects.get_or_create(user=user)
+    # If the cart was newly created, ensure the user is linked properly
+    if created:
+        # This is redundant, since `get_or_create(user=user)` should handle it automatically.
+        # user_cart.user = user
+        user_cart.save()
 
+    # Check if the user is a buyer and has a session cart
+    if user.groups.filter(name="Buyer").exists():
         if session_cart:
-            # Merge session cart into user's cart
+            # Merge the session cart into the user's cart
             user_cart.merge_with(session_cart)
-            # Remove session ID from the cart now that it’s associated with the user
+
+            # After merging, ensure the session cart is no longer needed
             user_cart.session_id = None
             user_cart.save()
-            # Delete the session-based cart
+
+            # Delete the session cart
             session_cart.delete()
+            
 @receiver(user_logged_in)
 def merge_wishlists(sender, request, user, **kwargs):
     """

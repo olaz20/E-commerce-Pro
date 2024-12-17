@@ -7,6 +7,7 @@ from store.models import *
 from .serializers import *
 from django.contrib.auth.models import AnonymousUser
 from .filter import *
+from rest_framework.generics import ListAPIView
 from django.contrib.sites.shortcuts import get_current_site
 from django.contrib.auth.models import Group
 from django.contrib.auth.hashers import make_password
@@ -36,12 +37,14 @@ from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
 from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
 from django.http import HttpResponsePermanentRedirect
 import os
+import logging
+from django.dispatch import receiver
 from django.core.mail import send_mail, BadHeaderError
 from django.utils.crypto import get_random_string
 import requests
 from rest_framework.permissions import IsAdminUser
-from rest_framework.exceptions import NotFound
-from api import serializers
+from django.db.models.signals import post_save
+from rest_framework import permissions
 
 # Create your views here.
 
@@ -50,8 +53,8 @@ class IsAdmin(BasePermission):
         return request.user.groups.filter(name="Admin").exists()
 
 
-class IsSeller(BasePermission):
-    def has_permission(self, request, view):
+class IsSeller(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
         # Check if the user is authenticated and belongs to the "Seller" group
         if request.user and request.user.is_authenticated:
             # Verify if the user is in the "Seller" group and is approved
@@ -61,9 +64,18 @@ class IsSeller(BasePermission):
             )
         return False
 
-class IsBuyer(BasePermission):
-    def has_permission(self, request, view):
+class IsBuyer(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
         return request.user.groups.filter(name="Buyer").exists()
+
+class IsOrderOwner(permissions.BasePermission):
+    """
+    Custom permission to only allow owners of an order to access or modify it.
+    """
+    def has_object_permission(self, request, view, obj):
+        # Check if the user making the request is the owner of the order
+        return obj.owner == request.user
+    
 
 class AdminViewSet(ModelViewSet):
     queryset = StoreUser.objects.all()
@@ -112,52 +124,101 @@ class AdminViewSet(ModelViewSet):
 
         return Response({'message': 'Seller approved and email sent successfully.'}, status=200)
 
-            
-
-
-
-
-def initiate_payment(user,amount, email, order_id):
-     # Validate inputs
-    if not all([user, amount, email, order_id]):
-        return Response({"error": "Invalid input parameters"}, status=400)
+class CheckoutViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated, IsBuyer]
+    @action(detail=False, methods=['post'])
     
-    url = "https://api.flutterwave.com/v3/payments"
-    headers = {
-        "Authorization": f"Bearer {settings.FLW_SEC_KEY}"
-        
-    }
-    
-    data = {
-        "tx_ref": str(uuid.uuid4()),
-        "amount": str(amount), 
-        "currency": "NGN",
-        "redirect_url": "http:/127.0.0.1:8000/api/orders/confirm_payment/?o_id=" + order_id,
-        "meta": {
-            "consumer_id": user.id,
-        },
-        "customer": {
-            "email": email,
-            "name": user.username or "Anonymous"
-        },
-        "customizations": {
-            "title": "Olaz Buy",
+    def checkout(self, request):
+        payment_method = request.data.get('payment_method', 'pay_on_delivery')
+
+        # Validate payment method
+        if payment_method not in ['flutterwave', 'pay_on_delivery']:
+            return Response({"error": "Invalid payment method"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch the user's saved shipping address
+        try:
+            address = Address.objects.filter(user=request.user).latest('created_at')  # Assuming Address has a timestamp
+        except Address.DoesNotExist:
+            return Response({"error": "No saved address found. Please save an address first."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create a dictionary for shipping address instead of just an ID
+        shipping_address_data = {
+                "full_name": address.full_name,
+                "phone_number": address.phone_number,
+                "country": address.country.name,
+                "state": address.state.name,
+                "local_government": address.local_government.name,
+                "street_address": address.street_address,
+                "landmark": address.landmark,
         }
-    }
-    
+        cart_id = request.data.get('cart_id')
+        if not cart_id:
+            return Response({"error": "Cart ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cart = Cart.objects.get(id=cart_id, user=request.user)
+        except Cart.DoesNotExist:
+            return Response({"error": "Invalid or inactive cart for this user."}, status=status.HTTP_400_BAD_REQUEST)
+        
 
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        response_data = response.json()
-        # Check if Flutterwave returned success
-        if response.status_code == 200 and response_data.get("status") == "success":
-            return Response(response_data, status=200)
-        else:
-            return Response({"error": response_data.get("message", "Payment initiation failed")}, status=400)
+        with transaction.atomic():
+            order_data = {
+                'cart': cart.id,  # Pass the actual cart object
+                'shipping_address': shipping_address_data,  # Pass the address as a dictionary
+                'payment_method': payment_method,
+            }
+            order_serializer = OrderSerializer(data=order_data)
+            if not order_serializer.is_valid():
+                return Response(order_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            order = order_serializer.save()
+
+            # Optional: Clear cart items after creating the order
+            cart.cartitem_set.all().delete()
+
+            # Handle payment method
+            if payment_method == 'flutterwave':
+                payment_url = self.initiate_payment(order)
+                if payment_url:
+                    return Response({"payment_url": payment_url}, status=status.HTTP_201_CREATED)
+                else:
+                    return Response({"error": "Failed to initiate Flutterwave payment"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {"message": "Checkout package created successfully", "order_id": order.id},
+            status=status.HTTP_201_CREATED,
+        )
+
     
-    
-    except requests.exceptions.RequestException as err:
-       return Response({"error": f"Payment initiation error: {str(err)}"}, status=500)
+def notify_seller(self, order):
+    # Get all unique sellers from the cart items
+    seller_emails = set()
+    for cart_item in order.cart.cartitem_set.all():
+        product = cart_item.product
+        if product.seller and product.seller.email:  # Assuming the Product model has a seller field (ForeignKey to User)
+            seller_emails.add(product.seller.email)
+
+    if not seller_emails:
+        return Response({"error": "seller email not found"}, status=status.HTTP_400_BAD_REQUEST) # No sellers to notify
+
+    subject = f"New Order Received: {order.id}"
+    message = f"""
+    A new order has been placed with the following details:
+
+    - Order ID: {order.id}
+    - Total Price: {order.cart.total_price}
+    - Payment Method: {order.payment_method}
+    - Shipping Address: {order.shipping_address}
+
+    Please check the dashboard for more details.
+    """
+    # Send an email to each seller
+    for email in seller_emails:
+        send_plain_text_email(subject, message, [email])  # Assumes a helper function to send emails
+
+
+
+
+
 def verify_payment(tx_ref):
         url = "https://api.flutterwave.com/v3/transactions/verify"
         headers = {
@@ -176,16 +237,59 @@ def verify_payment(tx_ref):
                 "message": str(e),
                 "data": None
             } 
+def initiate_payment(user,amount, email, order_id):
+        # Validate inputs
+        
+            if not all([user, amount, email, order_id]):
+                return Response({"error": "Invalid input parameters"}, status=400)
+            
+            url = "https://api.flutterwave.com/v3/payments"
+            headers = {
+                "Authorization": f"Bearer {settings.FLW_SEC_KEY}"
+                
+            }
+            
+            data = {
+                "tx_ref": str(uuid.uuid4()),
+                "amount": str(amount), 
+                "currency": "NGN",
+                "redirect_url": "http:/127.0.0.1:8000/api/orders/confirm_payment/?o_id=" + order_id,
+                "meta": {
+                    "consumer_id": user.id,
+                },
+                "customer": {
+                    "email": email,
+                    "name": user.username or "Anonymous"
+                },
+                "customizations": {
+                    "title": "Olaz Buy",
+                }
+            }
+            
+
+            try:
+                response = requests.post(url, headers=headers, json=data)
+                response_data = response.json()
+                # Check if Flutterwave returned success
+                if response.status_code == 200 and response_data.get("status") == "success":
+                    return Response(response_data, status=200)
+                else:
+                    return Response({"error": response_data.get("message", "Payment initiation failed")}, status=400)
+            
+            
+            except requests.exceptions.RequestException as err:
+               return Response({"error": f"Payment initiation error: {str(err)}"}, status=500)
  
 class OrderViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated, IsBuyer]
+    permission_classes = [IsAuthenticated, IsBuyer,IsOrderOwner]
     http_method_names = ["get", "patch", "post", "delete", "options", "head"]
     
     
     @action(detail=True, methods=['POST'])
     def pay(self, request, pk):
         order = self.get_object()
-        order.PAYMENT_STATUS_CHOICES = "P"
+        order.PAYMENT_STATUS_CHOICES = Order.PAYMENT_STATUS_PENDING
+        order.save()
         amount = order.total_price
         email = request.user.email
         order_id = str(order.id)
@@ -204,7 +308,8 @@ class OrderViewSet(ModelViewSet):
         if request.user.email:
            send_plain_text_email(subject, message, [request.user.email])
 
-        return initiate_payment(amount, email, order_id)
+        return initiate_payment(request.user,amount, email, order_id)
+        return Response(response, status=200)
     
     @action(detail=False, methods=["POST"])
     def confirm_payment(self, request):
@@ -214,18 +319,17 @@ class OrderViewSet(ModelViewSet):
         user = request.user
         try:
         # Use only valid fields from the Order model
-           order = Order.objects.get(id=order_id, owner=user)
+           order = get_object_or_404(Order, id=order_id, owner=user)
         except Order.DoesNotExist:
            return Response({"error": "Invalid order ID or unauthorized access"}, status=403)
         payment_verification = verify_payment(tx_ref)
         if payment_verification['status'] != 'success':
-            order.PAYMENT_STATUS_CHOICES = "F"
-            order.save()  # Save the failed status
+            order.PAYMENT_STATUS_CHOICES = Order.PAYMENT_STATUS_FAILED
             return Response({
                 "msg": "Payment verification failed",
                 "data": OrderSerializer(order).data
             })
-        order.PAYMENT_STATUS_CHOICES = "C"
+        order.PAYMENT_STATUS_CHOICES = Order.PAYMENT_STATUS_COMPLETE
         order.save()
         serializer = OrderSerializer(order)
         item_names = ", ".join(serializer.data['item_names'])
@@ -245,7 +349,11 @@ class OrderViewSet(ModelViewSet):
         OLAZ BUY
         """
         if request.user.email:
-           send_plain_text_email(subject, message, [request.user.email])
+            try:
+                send_plain_text_email(subject, message, [request.user.email])
+            except Exception as e:
+                # Handle email sending failure
+                logging.error(f"Failed to send email: {str(e)}")
 
         data = {
             "msg": "payment was successful",
@@ -258,62 +366,71 @@ class OrderViewSet(ModelViewSet):
         if self.request.method in ["PATCH", "DELETE"]:
             return [IsAdminUser()]
         return [IsAuthenticated()]
-    
-            
-    
-    
     def create(self, request, *args, **kwargs):
-        serializer = CreateOrderSerializer(data=request.data, context={"user_id": self.request.user.id})
-        serializer.is_valid(raise_exception=True)
-        order = serializer.save(PAYMENT_STATUS_CHOICES='P')
-        order = serializer.save()
-        item_names = ", ".join(serializer.item_names)
-        total_quantity = sum(item.quantity for item in order.items.all())
-         # Send plain-text order confirmation email
-        subject = "Order Confirmation"
-        message = f"""
-        Hi {request.user.username},
-
-        Thank you for your order! Here are the details:
-        - Item: {item_names}
-        - Quantity: {total_quantity}
-        - Total Price: ${order.total_price}
-
-        We’ll notify you when your order is shipped.
-
-        Regards,
-        Olaz buy
-        """
-        if request.user.email:
-            send_plain_text_email(subject, message, [request.user.email])
-
-        serializer = OrderSerializer(order)
-        return Response(serializer.data)
+        # Initialize serializer with user ID in the context
+        serializer = CreateOrderSerializer(data=request.data, context={"user_id": request.user.id})
         
-    
+        # Validate the serializer
+        if serializer.is_valid(raise_exception=True):
+            # Save the order with the specified payment status
+            order = serializer.save(payment_status='P')
 
-    
-    
-    
+            # Fetch item names and calculate total quantity
+            item_names = [item.product.name for item in order.items.all()]
+            total_quantity = sum(item.quantity for item in order.items.all())
+
+            # Prepare and send an order confirmation email if the user has an email
+            if request.user.email:
+                subject = "Order Confirmation"
+                message = f"""
+                Hi {request.user.username},
+
+                Thank you for your order! Here are the details:
+                - Item(s): {', '.join(item_names)}
+                - Quantity: {total_quantity}
+                - Total Price: ${order.total_price}
+
+                We’ll notify you when your order is shipped.
+
+                Regards,
+                Olaz Buy Team
+                """
+                send_mail(subject, message, 'no-reply@olazbuy.com', [request.user.email])
+
+            # Serialize the order data and return it in the response
+            response_serializer = OrderSerializer(order)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        
+        # If serializer is not valid, return errors (raise_exception=True will raise validation errors automatically)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
     def get_serializer_class(self):
+        """
+        Returns the appropriate serializer class based on the HTTP method.
+        """
         if self.request.method == 'POST':
             return CreateOrderSerializer
         elif self.request.method == 'PATCH':
             return UpdateOrderSerializer
         return OrderSerializer
-       
-    
+
     def get_queryset(self):
+        """
+        Returns the queryset for authenticated users or an empty queryset for unauthenticated users.
+        """
         user = self.request.user
-        if isinstance(user, AnonymousUser):
-            # Return an empty queryset if the user is anonymous (not authenticated)
+        if not user.is_authenticated:
             return Order.objects.none()
         return Order.objects.filter(owner=user)
-        # def get_serializer_context(self):
-        #     return {"user_id": self.request.user.id}
-                
-# Create your views here.
 
+
+
+                
+        
+        
+        
+        
+    
 class ProductsViewSet(ModelViewSet):
     queryset = Product.objects.all().annotate(avg_rating=Avg('review__rating'))
     serializer_class = ProductSerializer
@@ -329,13 +446,7 @@ class ProductsViewSet(ModelViewSet):
             self.permission_classes = [AllowAny]
         return super().get_permissions()
 
-    # Example action for sellers to get order updates
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, IsSeller])
-    def order_updates(self, request):
-        # Logic for retrieving order updates
-        pass
-    parser_classes = (MultiPartParser, FormParser) # this will allow image upload
-
+   
 class CategoryViewSet(ModelViewSet):
     pagination_class = PageNumberPagination
     queryset = Category.objects.all()
@@ -378,17 +489,49 @@ class CartViewSet(ListModelMixin,CreateModelMixin, RetrieveModelMixin, DestroyMo
     permission_classes = [AllowAny]
     queryset = Cart.objects.all()
     serializer_class = CartSerializer
+    @action(detail=False, methods=['get'])
+    def get_or_create_cart(self, request):
+        user = request.user
+
+        # If the user is authenticated and a Buyer
+        if user.is_authenticated and user.groups.filter(name="Buyer").exists():
+            # Retrieve or create a cart associated with the authenticated user
+            cart, created = Cart.objects.get_or_create(user=user)
+            if created:
+               cart.save()
+               print(f"Cart created for user: {user.id}")
+            
+            else:
+                # For unauthenticated users, use the session cart
+                session_id = request.session.session_key or request.session.create()
+                cart, created = Cart.objects.get_or_create(session_id=session_id)
+                if created:
+                   cart.save()
+             # Merge session cart into user cart if applicable
+            if user.is_authenticated:
+                session_cart = Cart.objects.filter(session_id=request.session.session_key).first()
+                if session_cart and session_cart != cart:
+                    for item in session_cart.items.all():
+                        if not cart.items.filter(product=item.product).exists():
+                            item.cart = cart
+                            item.save()
+                    session_cart.delete()
+            # Return the cart items associated with the current cart
+            return Response(CartItemSerializer(cart.items.all(), many=True).data)
+   
 
 class CartItemViewSet(ModelViewSet):
     permission_classes = [AllowAny]
     http_method_names = ["get", "post", "patch", "delete"]
     def get_queryset(self):
-        user = self.request.user
+        user = self.request.user 
         
         # For authenticated users (buyers)
         if user.is_authenticated and user.groups.filter(name="Buyer").exists():
             cart, created = Cart.objects.get_or_create(user=user)
-            
+            if created:
+              cart.save()
+
             # Check if there are items in the session cart that need to be moved to the user's cart
             session_id = self.request.session.session_key or self.request.session.create()
             session_cart = Cart.objects.filter(session_id=session_id).first()
@@ -401,12 +544,13 @@ class CartItemViewSet(ModelViewSet):
                         item.save()
                 # Optionally, delete session cart after transfer
                 session_cart.delete()
+                
 
         else:
             # For unauthenticated users, use session cart
             session_id = self.request.session.session_key or self.request.session.create()
             cart, created = Cart.objects.get_or_create(session_id=session_id)
-
+            cart.save()
         return CartItem.objects.filter(cart=cart)
     
     def get_serializer_class(self):
@@ -420,15 +564,23 @@ class CartItemViewSet(ModelViewSet):
 
     def get_serializer_context(self):
         user = self.request.user
-        # Use user cart for authenticated buyers, else use session cart
+
         if user.is_authenticated and user.groups.filter(name="Buyer").exists():
-            cart = Cart.objects.get(user=user)
+            # Get the user's cart, or handle if not found
+            cart = Cart.objects.filter(user=user).first()
+            if not cart:
+                # Handle the case where no cart is found for the user
+                cart = Cart.objects.create(user=user)  # Create a new cart if needed
         else:
+            # Use the session-based cart
             session_id = self.request.session.session_key or self.request.session.create()
-            cart = Cart.objects.get(session_id=session_id)
-        
+            cart = Cart.objects.filter(session_id=session_id).first()
+            if not cart:
+                # Handle the case where no cart is found for the session
+                cart = Cart.objects.create(session_id=session_id)  # Create a new cart if needed
+
         return {"cart_id": cart.id}
-     # Overriding the destroy method to handle cart item deletion
+
     def destroy(self, request, *args, **kwargs):
         user = self.request.user
         session_id = self.request.session.session_key or self.request.session.create()
@@ -754,32 +906,52 @@ class VerifyCodeAndCreateUserView(APIView):
 class RequestPasswordEmail(generics.GenericAPIView): 
     permission_classes = [AllowAny]
     serializer_class = ResetPasswordEmailRequestSerializer
+
     def post(self, request):
+        # Validate the request data using serializer
         serializer = self.serializer_class(data=request.data)
-        email = request.data.get('email', '')
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']  # Safely get email after validation
+
+        # Check if a user with this email exists
         if User.objects.filter(email=email).exists():
             user = User.objects.get(email=email)
+            
+            # Generate a unique token for the user
             uidb64 = urlsafe_base64_encode(smart_bytes(user.id))
             token = PasswordResetTokenGenerator().make_token(user)
-            current_site = get_current_site(
-                request=request).domain
-            relativeLink = reverse(
-                'password-reset-confirm', kwargs={'uidb64': uidb64, 'token': token})
             
-             # Generate a secure reset code
+            # Generate an OTP and store it in the cache
             reset_code = get_random_string(length=6, allowed_chars='0123456789')
             cache.set(f"password_reset_code_{email}", reset_code, timeout=900)  # Valid for 15 minutes
 
+            # Construct the reset URL
+            current_site = get_current_site(request=request).domain
+            relative_link = reverse('password-reset-confirm', kwargs={'uidb64': uidb64, 'token': token})
             redirect_url = request.data.get('redirect_url', '')
-            absurl = 'http://'+current_site + relativeLink
+            absurl = f"http://{current_site}{relative_link}?redirect_url={redirect_url}"
+
+            # Email body with link and code
             email_body = (
-                f"Hello, \nUse the link below to reset your password:\n{absurl}?redirect_url={redirect_url}\n\n"
-                f"Alternatively, use this code to reset your password: {reset_code}"
+                f"Hello,\n\n"
+                f"Use the link below to reset your password:\n{absurl}\n\n"
+                f"Alternatively, use this code to reset your password: {reset_code}\n\n"
+                f"If you didn't request a password reset, please ignore this email."
             )
-            data = {'email_body': email_body, 'to_email': user.email,
-                    'email_subject': 'Reset your passsword'}
+
+            # Send the email
+            data = {
+                'email_body': email_body,
+                'to_email': user.email,
+                'email_subject': 'Reset Your Password'
+            }
             Util.send_email(data)
-        return Response({'success': 'We have sent you a link to reset your password'}, status=status.HTTP_200_OK)
+
+            # Respond with success
+            return Response({'success': 'We have sent you a link to reset your password'}, status=status.HTTP_200_OK)
+
+        # User with provided email does not exist
+        return Response({'error': 'No user found with this email address'}, status=status.HTTP_404_NOT_FOUND)
 
 class CustomRedirect(HttpResponsePermanentRedirect):
     permission_classes = [AllowAny]
@@ -834,36 +1006,248 @@ class ValidateOTPAndResetPassword(generics.GenericAPIView):
     serializer_class = ResetPasswordSerializer
 
     def post(self, request):
-        email = request.data.get('email', '')
+        # Extract request data
+        email = request.data.get('email', '').strip()
         auth_code = request.data.get('auth_code', '')
-        new_password = request.data.get('new_password', '')
-
-        stored_auth_code = cache.get(f"password_reset_code_{email}")
-
-            
+        new_password = request.data.get('new_password', '').strip()
+        try:
+            auth_code = int(auth_code)
+        except ValueError:
+            return Response({'error': 'Invalid authentication code format. Must be a numeric value.'}, 
+                            status=status.HTTP_400_BAD_REQUEST)
+        if not email or not auth_code or not new_password:
+            return Response({"error": "All fields are required."}, status=status.HTTP_400_BAD_REQUEST)
+        stored_auth_code = int(cache.get(f"password_reset_code_{email}"))  
         if stored_auth_code is None:
-                return Response({"error": "Authentication code expired or not found."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Authentication code expired or not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if User.objects.filter(email=email).exists():
-            user = User.objects.get(email=email)
 
-            try:
-               
-                
+        if not stored_auth_code:
+            return Response({"error": "Authentication code expired or not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-                # Check if the OTP matches and is valid
-                if stored_auth_code == auth_code:
-                    # Reset the password
-                    user.set_password(new_password)
-                    user.save()
+        if stored_auth_code != auth_code:
+            return Response({"error": "Invalid OTP."}, status=status.HTTP_400_BAD_REQUEST)
+        if not User.objects.filter(email=email).exists():
+            return Response({"error": "User with this email does not exist."}, status=status.HTTP_404_NOT_FOUND)
+        user = User.objects.get(email=email)
+        user.set_password(new_password)
+        user.save()
 
-                   # Delete the OTP from cache after successful password reset
-                    cache.delete(f"password_reset_code_{email}")
+        # Clear the OTP
+        cache.delete(f"password_reset_code_{email}")
 
-                    return Response({'success': 'Password has been reset successfully'}, status=status.HTTP_200_OK)
-                else:
-                    return Response({'error': 'Invalid or expired OTP'}, status=status.HTTP_400_BAD_REQUEST)
-            except PasswordResetOTP.DoesNotExist:
-                return Response({'error': 'No OTP request found for this user'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"success": "Password has been reset successfully."}, status=status.HTTP_200_OK)
+@receiver(post_save, sender=OrderItem)
+def send_order_notification_to_sellers(sender, instance, created, **kwargs):
+    if created:
+        order = instance.order  # Get the order that contains the order item
+        
+        # Group order items by seller
+        sellers = {}
+        for order_item in order.items.all():
+            seller = order_item.product.seller  # Get the seller of the product
+            if seller not in sellers:
+                sellers[seller] = []
+            sellers[seller].append(order_item.product)
 
-        return Response({'error': 'User with this email does not exist'}, status=status.HTTP_404_NOT_FOUND)
+        # Notify each seller
+        for seller, products in sellers.items():
+            # Create a notification for the seller
+            Notification.objects.create(
+                recipient=seller,
+                message=f"Your products {', '.join([p.name for p in products])} have been ordered. Order ID: {order.id}."
+            )
+
+            # Optionally, you can also send an email notification
+            send_mail(
+                'Order Notification',
+                f"Your products {', '.join([p.name for p in products])} have been ordered. Order ID: {order.id}.",
+                'noreply@yourstore.com',
+                [seller.email],
+                fail_silently=False,
+            )
+class AddressFormView(viewsets.ViewSet):
+    """
+    A viewset to manage the address for the authenticated user.
+    """
+
+    permission_classes = [IsAuthenticated, IsBuyer]
+
+    def get(self, request, *args, **kwargs):
+        """
+        Fetches all addresses for the authenticated user.
+        If no addresses exist, return a message and an empty list.
+        """
+        # Retrieve all addresses for the authenticated user
+        addresses = Address.objects.filter(user=request.user)
+        
+        if addresses.exists():
+            # Serialize the addresses into a list of dictionaries
+            address_data = [
+                {
+                    "id": address.id,
+                    "full_name": address.full_name,
+                    "phone_number": address.phone_number,
+                    "country": address.country.name,
+                    "state": address.state.name,
+                    "local_government": address.local_government.name,
+                    "street_address": address.street_address,
+                    "landmark": address.landmark,
+                }
+                for address in addresses
+            ]
+            return Response(
+                {
+                    "message": "Addresses retrieved successfully",
+                    "addresses": address_data,
+                },
+                status=status.HTTP_200_OK,
+            )
+        else:
+            # No addresses found for the user
+            return Response(
+                {
+                    "message": "No addresses found for the user",
+                    "addresses": [],
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+    def create(self, request, *args, **kwargs):
+        """
+        Handles creating a new address.
+        """
+        # Extract data from the request
+        address_data = request.data
+
+        # Use a serializer to validate and save the address data
+        serializer = AddressSerializer(data=address_data)
+        if serializer.is_valid():
+            # Save the address to the database
+            address = serializer.save(user=self.request.user)
+            return Response(
+                {
+                    "message": "Address created successfully",
+                    "address": {
+                        "full_name": serializer.data.get("full_name"),
+                        "phone_number": serializer.data.get("phone_number"),
+                        "country": address.country.name,
+                        "state": address.state.name,
+                        "local_government": address.local_government.name,
+                        "street_address": serializer.data.get("street_address"),
+                        "landmark": serializer.data.get("landmark"),
+                    },
+                },
+                status=status.HTTP_201_CREATED,
+            )
+        else:
+            # Return validation errors
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, pk=None, *args, **kwargs):
+        """
+        Handles partial update (PATCH) of an address.
+        """
+        try:
+            # Retrieve the address object for the authenticated user
+            address = Address.objects.get(pk=pk, user=request.user)
+        except Address.DoesNotExist:
+            return Response(
+                {"error": "Address not found or you do not have permission to modify it."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Validate and update the address using the serializer
+        serializer = AddressSerializer(address, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(
+                {
+                    "message": "Address updated successfully",
+                    "address": {
+                        "full_name": serializer.data.get("full_name"),
+                        "phone_number": serializer.data.get("phone_number"),
+                        "country": address.country.name,
+                        "state": address.state.name,
+                        "local_government": address.local_government.name,
+                        "street_address": serializer.data.get("street_address"),
+                        "landmark": serializer.data.get("landmark"),
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None, *args, **kwargs):
+        """
+        Handles deleting an address.
+        """
+        try:
+            # Retrieve the address object for the authenticated user
+            address = Address.objects.get(pk=pk, user=request.user)
+        except Address.DoesNotExist:
+            return Response(
+                {"error": "Address not found or you do not have permission to delete it."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Delete the address
+        address.delete()
+        return Response({"message": "Address deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+
+
+class SellerDashboardViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def orders(self, request):
+        seller = request.user
+        order_items = OrderItem.objects.filter(product__seller=seller)
+        serializer = SellerOrderItemSerializer(order_items, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['patch'])
+    def update_status(self, request, pk=None):
+        try:
+            order_item = OrderItem.objects.get(id=pk, product__seller=request.user)
+        except OrderItem.DoesNotExist:
+            return Response({"error": "Order item not found or you do not own this product."}, status=status.HTTP_404_NOT_FOUND)
+
+        delivery_status = request.data.get('delivery_status')
+        if delivery_status not in ['pending', 'processing', 'delivered']:
+            return Response({"error": "Invalid delivery status."}, status=status.HTTP_400_BAD_REQUEST)
+
+        order_item.delivery_status = delivery_status
+        order_item.save()
+        return Response({"message": "Delivery status updated successfully."})
+
+class CountryListView(ListAPIView):
+    queryset = Country.objects.all()
+    serializer_class = CountrySerializer
+
+class StateListView(ListAPIView):
+    def get_queryset(self):
+        country_id = self.kwargs['country_id']
+        return State.objects.filter(country_id=country_id)
+    serializer_class = StateSerializer
+
+class LGAListView(ListAPIView):
+    def get_queryset(self):
+        state_id = self.kwargs['state_id']
+        return LocalGovernment.objects.filter(state_id=state_id)
+    serializer_class = LocalGovernmentSerializer
+
+class ShippingFeeView(ListAPIView):
+    def get_queryset(self):
+        lga_id = self.kwargs['lga_id']
+        return ShippingFee.objects.filter(lga_id=lga_id)
+    serializer_class = ShippingFeeSerializer
+    
+class DeleteAccountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, *args, **kwargs):
+        # Access the authenticated user
+        user = request.user
+        # Delete the user
+        user.delete()
+        return Response({"message": "Your account has been deleted successfully."}, status=status.HTTP_200_OK)

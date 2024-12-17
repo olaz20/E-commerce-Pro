@@ -14,7 +14,11 @@ router.register("cartitem", views.CartItemViewSet, basename="cartitems")
 router.register("profile", views.ProfileViewSet, basename="profile")
 router.register("wishlist", views.WishListViewSet, basename="wishlist")
 router.register("orders", views.OrderViewSet, basename="orders")
-router.register("admin", AdminViewSet, basename='admin')
+router.register("admin", views.AdminViewSet, basename='admin')
+router.register("checkout", views.CheckoutViewSet, basename="checkout")
+router.register("address", views.AddressFormView, basename='address')
+router.register("seller-delivery-verification", views.SellerDashboardViewSet, basename="seller-delivery-verification")
+
 
 # Explicit routes for APIView-based classes
 urlpatterns = [
@@ -36,5 +40,10 @@ urlpatterns = [
     path('password-reset-complete', SetNewPasswordAPIView.as_view(),
          name='password-reset-complete'),
      path('admin/<id>/approve_seller/', AdminViewSet.as_view({'patch': 'approve_seller'}), name='approve-seller'),
+     path('countries/', CountryListView.as_view(), name='country-list'),
+    path('states/<int:country_id>/', StateListView.as_view(), name='state-list'),
+    path('lgas/<int:state_id>/', LGAListView.as_view(), name='lga-list'),
+    path('shipping-fee/<int:lga_id>/', ShippingFeeView.as_view(), name='shipping-fee'),
+    path('delete-account/', DeleteAccountView.as_view(), name='delete_account'),
 ]
 

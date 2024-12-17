@@ -20,28 +20,33 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category 
         fields = ['category_id', 'title', 'slug']
 
+
 class ProductSerializer(serializers.ModelSerializer):
     category = CategorySerializer()  # Nested serializer for read/write
     avg_rating = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'price', 'description', 'category', 'slug', 'image', 'inventory', "flash_sales", 'top_deal', 'avg_rating']
+        fields = ['id', 'name', 'price', 'description', 'category', 'slug', 'image', 'inventory', 'flash_sales', 'top_deal', 'avg_rating', 'seller']
 
     def get_avg_rating(self, obj):
         # Access the dynamically annotated avg_rating or return None
         return getattr(obj, 'avg_rating', None)
 
     def create(self, validated_data):
+        # Pop out category data for handling separately
         category_data = validated_data.pop('category', None)
-        
+
+        # Get the logged-in user (the seller)
+        user = self.context['request'].user  # This gives the logged-in user
+
         if category_data:
             # Ensure the category exists or is created
             category, created = Category.objects.get_or_create(**category_data)
             validated_data['category'] = category
 
-        # Create the product instance
-        product = Product.objects.create(**validated_data)
+        # Create the product instance, automatically associating the seller with the logged-in user
+        product = Product.objects.create(seller=user, **validated_data)
         return product
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -62,7 +67,7 @@ class SimpleProductSerializer(serializers.ModelSerializer):
 class CartItemSerializer(serializers.ModelSerializer):
     product = SimpleProductSerializer(many=False, read_only=True)
     item_total = serializers.SerializerMethodField(method_name="total")
-
+    
     class Meta:
         model = CartItem
         fields = ["id", "product", "quantity", "item_total"]
@@ -105,7 +110,7 @@ class AddCartItemSerializer(serializers.ModelSerializer):
             product_id=product_id,
             defaults={'quantity': quantity}
         )
-
+        cartitem.save()
         if not created:  # If the cart item already exists
             cartitem.quantity += quantity
             cartitem.save()
@@ -156,10 +161,10 @@ class CartSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True)
     items = serializers.SerializerMethodField(method_name='get_items')
     grand_total = serializers.SerializerMethodField(method_name='main_total')
-
+    user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False)
     class Meta:
         model = Cart
-        fields = ["id", "items", "session_id" ,"grand_total"]
+        fields = ["id",'user', "items", "session_id" ,"grand_total"]
     def get_items(self, cart):
         # Simplify the item structure: only include item ID and name
         return [
@@ -263,7 +268,9 @@ class EmailVerificationSerializer(serializers.ModelSerializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
-
+    class Meta:
+        model = User
+        fields = ('email', 'password')
     def validate(self, data):
         email = data.get('email')
         password = data.get('password')
@@ -364,7 +371,71 @@ class ResetPasswordSerializer(serializers.Serializer):
     class Meta:
         model = User
         fields = ['email', 'auth_code', 'new_password']
+
+class LocalGovernmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LocalGovernment
+        fields = ['id', 'name']
+class StateSerializer(serializers.ModelSerializer):
+    lgas = LocalGovernmentSerializer(many=True, read_only=True)
+    class Meta:
+        model = State
+        fields = ['id', 'name', 'lgas']
+class CountrySerializer(serializers.ModelSerializer):
+    states = StateSerializer(many=True, read_only=True)
+    class Meta:
+        model = Country
+        fields = ['id', 'name', 'states']
+
+
+
+
+class ShippingFeeSerializer(serializers.ModelSerializer):
+    lga = LocalGovernmentSerializer()
+
+    class Meta:
+        model = ShippingFee
+        fields = ['lga', 'fee']
+
+class AddressSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(read_only=True)
+    country = serializers.CharField()
+    state = serializers.CharField()
+    local_government = serializers.CharField()
+    class Meta:
+        model = Address
+        fields = ['id','full_name', 'phone_number', 'country', 'state', 
+                  'local_government', 'street_address', 'landmark'] 
+
+    def validate(self, data):
+        # Convert country name to object
+        try:
+            country_obj = Country.objects.get(name=data['country'])
+        except Country.DoesNotExist:
+            raise serializers.ValidationError({"country": "Invalid country name."})
+
+        # Convert state name to object
+        try:
+            state_obj = State.objects.get(name=data['state'], country=country_obj)
+        except State.DoesNotExist:
+            raise serializers.ValidationError({"state": "Invalid state for the given country."})
+
+        # Convert local government name to object
+        try:
+            local_government_obj = LocalGovernment.objects.get(name=data['local_government'], state=state_obj)
+        except LocalGovernment.DoesNotExist:
+            raise serializers.ValidationError({"local_government": "Invalid local government for the given state."})
+
+        # Replace string values with actual objects
+        data['country'] = country_obj
+        data['state'] = state_obj
+        data['local_government'] = local_government_obj
+        return data
+
+
         
+    
+         
 class OrderItemSerializer(serializers.ModelSerializer):
     product = SimpleProductSerializer()
     class Meta:
@@ -376,66 +447,129 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     item_names = serializers.SerializerMethodField()
-    payment_choice = serializers.ChoiceField(choices=Order.PAYMENT_STATUS_CHOICES, default='P')   
-        
+    payment_status = serializers.ChoiceField(choices=Order.PAYMENT_STATUS_CHOICES, default='P')  # Correct field name
+    shipping_address = serializers.PrimaryKeyRelatedField(queryset=Address.objects.all())
+
+
     class Meta:
-        model = Order 
-        fields = ['id', "placed_at", "payment_choice", "owner", "items", "item_names"]
+        model = Order
+        fields = ['id', 'placed_at', 'payment_status', 'owner', 'items', 'item_names', 'shipping_address', 'payment_method']
+
     def get_item_names(self, obj):
         # Fetch item names from related order items
         return [item.product.name for item in obj.items.all()]
 
+    def validate(self, data):
+        """
+        Ensure all required fields are provided.
+        """
+        if not data.get("shipping_address"):
+            raise serializers.ValidationError("Shipping address is required.")
+        if not data.get("payment_method"):
+            raise serializers.ValidationError("Payment method is required.")
+        return data
+    def create(self, validated_data):
+        # Get the shipping address directly by ID
+        shipping_address = validated_data.get('shipping_address')
+        cart = validated_data.get('cart')
+        
+        if not cart:
+            raise serializers.ValidationError("Cart is required to create an order.")
+        
+        total_amount = sum(item.product.price * item.quantity for item in cart.items.all())
+        
+        # Create the order
+        order = Order.objects.create(
+            cart=cart,
+            user=cart.user,  # Assuming cart has a user associated
+            shipping_address=shipping_address,
+            total_amount=total_amount,
+            payment_status=validated_data.get('payment_status', 'P'),
+            payment_method=validated_data.get('payment_method')
+        )
+
+        # Create order items for each cart item
+        for item in cart.items.all():
+            OrderItem.objects.create(order=order, product=item.product, quantity=item.quantity)
+        
+        cart.items.clear()  # Clear cart after order is placed
+        return order
+    
     
 class CreateOrderSerializer(serializers.Serializer):
     cart_id = serializers.UUIDField()
-    
-    
-    
+    shipping_address_id = serializers.IntegerField()  # Assuming it's a ForeignKey
+    payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES)
+
+    def validate_shipping_address_id(self, shipping_address_id):
+        if not Address.objects.filter(id=shipping_address_id).exists():
+            raise serializers.ValidationError("Invalid shipping address.")
+        return shipping_address_id
+
     def validate_cart_id(self, cart_id):
-        if not Cart.objects.filter(pk=cart_id).exists():
-            raise serializers.ValidationError("This cart_id is invalid")
-        
-        elif not CartItem.objects.filter(cart_id=cart_id).exists():
-            raise serializers.ValidationError("Sorry your cart is empty")
-        
+        if not Cart.objects.filter(id=cart_id).exists():
+            raise serializers.ValidationError("This cart_id is invalid.")
         return cart_id
-    
-    
     
     def save(self, **kwargs):
         with transaction.atomic():
             cart_id = self.validated_data["cart_id"]
             user_id = self.context["user_id"]
-            cartitems = CartItem.objects.filter(cart_id=cart_id)
-            for item in cartitems:
+            shipping_address_id = self.validated_data["shipping_address_id"]
+            payment_method = self.validated_data["payment_method"]
+            cart_items = CartItem.objects.filter(cart_id=cart_id)
+
+            for item in cart_items:
                 if item.product.inventory < item.quantity:
                     raise serializers.ValidationError(
                         f"Not enough inventory for product '{item.product.name}'. "
                         f"Available: {item.product.inventory}, Requested: {item.quantity}."
                     )
-            order = Order.objects.create(owner_id = user_id)
-            
-            orderitems = [] 
-            item_names = []
-            for item in cartitems:
+            try:
+                shipping_address = Address.objects.get(pk=shipping_address_id)
+            except Address.DoesNotExist:
+                raise serializers.ValidationError("Invalid shipping address.")
+
+            order = Order.objects.create(owner_id=user_id, shipping_address=shipping_address, payment_method=payment_method)
+            # Create the order with the shipping address
+            order_items = []
+            for item in cart_items:
                 item.product.inventory -= item.quantity
                 item.product.save()
+                order_items.append(OrderItem(order=order, product=item.product, quantity=item.quantity))
+            OrderItem.objects.bulk_create(order_items)
 
-                # Create order item
-                orderitems.append(
-                    OrderItem(order=order, product=item.product, quantity=item.quantity)
-                )
-                item_names.append(item.product.name)
-            OrderItem.objects.bulk_create(orderitems)
-            self._item_names = item_names
-            # Cart.objects.filter(id=cart_id).delete()
+            # Clean up Cart
+            cart_items.delete()
+
             return order
-    @property
-    def item_names(self):
-    # Expose item names as a public property
-        return getattr(self, "_item_names", [])
+
 
 class UpdateOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order 
         fields = ["payment_choice"]
+
+class SellerOrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.ReadOnlyField(source='product.name')
+    order_id = serializers.ReadOnlyField(source='order.id')
+    buyer_email = serializers.ReadOnlyField(source='order.user.email')  # Include if necessary
+    shipping_address = serializers.SerializerMethodField()
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'order_id', 'product_name', 'quantity', 'delivery_status', 'buyer_email', 'shipping_address']
+        
+        def get_shipping_address(self, obj):
+            """
+            Get the shipping address associated with the order.
+            """
+            address = obj.order.shipping_address
+            if address:
+                return {
+                    "street": address.street_address,
+                    "city": address.local_government,
+                    "state": address.state,
+                    "country": address.country,
+                }
+            return None
+    
