@@ -17,7 +17,7 @@ def create_user_roles(sender, **kwargs):
     admin_group.permissions.set(admin_permissions)
     # seller permission
     seller_permission = Permission.objects.filter(
-        codename__in=['add_product', 'change_product', 'delete_product']
+        codename__in=['add_product', 'change_product', 'delete_product','change_order', 'update_order_status']
     )
     seller_group.permissions.set(seller_permission)
     # Buyer permissions: can view products and add to cart

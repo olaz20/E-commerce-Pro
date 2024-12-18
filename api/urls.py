@@ -15,9 +15,8 @@ router.register("profile", views.ProfileViewSet, basename="profile")
 router.register("wishlist", views.WishListViewSet, basename="wishlist")
 router.register("orders", views.OrderViewSet, basename="orders")
 router.register("admin", views.AdminViewSet, basename='admin')
-router.register("checkout", views.CheckoutViewSet, basename="checkout")
 router.register("address", views.AddressFormView, basename='address')
-router.register("seller-delivery-verification", views.SellerDashboardViewSet, basename="seller-delivery-verification")
+
 
 
 # Explicit routes for APIView-based classes

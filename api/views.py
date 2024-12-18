@@ -54,15 +54,14 @@ class IsAdmin(BasePermission):
 
 
 class IsSeller(permissions.BasePermission):
-    def has_object_permission(self, request, view, obj):
-        # Check if the user is authenticated and belongs to the "Seller" group
-        if request.user and request.user.is_authenticated:
-            # Verify if the user is in the "Seller" group and is approved
-            return (
-                request.user.groups.filter(name="Seller").exists()
-                and getattr(request.user, 'is_approved', False)
-            )
-        return False
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        
+        if not request.user.groups.filter(name="Seller").exists():
+            return False
+
+        return getattr(request.user, 'is_approved', False)
 
 class IsBuyer(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
@@ -123,101 +122,6 @@ class AdminViewSet(ModelViewSet):
                 return Response({'error': 'Invalid header. Email could not be sent.'}, status=400)
 
         return Response({'message': 'Seller approved and email sent successfully.'}, status=200)
-
-class CheckoutViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated, IsBuyer]
-    @action(detail=False, methods=['post'])
-    
-    def checkout(self, request):
-        payment_method = request.data.get('payment_method', 'pay_on_delivery')
-
-        # Validate payment method
-        if payment_method not in ['flutterwave', 'pay_on_delivery']:
-            return Response({"error": "Invalid payment method"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Fetch the user's saved shipping address
-        try:
-            address = Address.objects.filter(user=request.user).latest('created_at')  # Assuming Address has a timestamp
-        except Address.DoesNotExist:
-            return Response({"error": "No saved address found. Please save an address first."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Create a dictionary for shipping address instead of just an ID
-        shipping_address_data = {
-                "full_name": address.full_name,
-                "phone_number": address.phone_number,
-                "country": address.country.name,
-                "state": address.state.name,
-                "local_government": address.local_government.name,
-                "street_address": address.street_address,
-                "landmark": address.landmark,
-        }
-        cart_id = request.data.get('cart_id')
-        if not cart_id:
-            return Response({"error": "Cart ID is required"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            cart = Cart.objects.get(id=cart_id, user=request.user)
-        except Cart.DoesNotExist:
-            return Response({"error": "Invalid or inactive cart for this user."}, status=status.HTTP_400_BAD_REQUEST)
-        
-
-        with transaction.atomic():
-            order_data = {
-                'cart': cart.id,  # Pass the actual cart object
-                'shipping_address': shipping_address_data,  # Pass the address as a dictionary
-                'payment_method': payment_method,
-            }
-            order_serializer = OrderSerializer(data=order_data)
-            if not order_serializer.is_valid():
-                return Response(order_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-            order = order_serializer.save()
-
-            # Optional: Clear cart items after creating the order
-            cart.cartitem_set.all().delete()
-
-            # Handle payment method
-            if payment_method == 'flutterwave':
-                payment_url = self.initiate_payment(order)
-                if payment_url:
-                    return Response({"payment_url": payment_url}, status=status.HTTP_201_CREATED)
-                else:
-                    return Response({"error": "Failed to initiate Flutterwave payment"}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response(
-            {"message": "Checkout package created successfully", "order_id": order.id},
-            status=status.HTTP_201_CREATED,
-        )
-
-    
-def notify_seller(self, order):
-    # Get all unique sellers from the cart items
-    seller_emails = set()
-    for cart_item in order.cart.cartitem_set.all():
-        product = cart_item.product
-        if product.seller and product.seller.email:  # Assuming the Product model has a seller field (ForeignKey to User)
-            seller_emails.add(product.seller.email)
-
-    if not seller_emails:
-        return Response({"error": "seller email not found"}, status=status.HTTP_400_BAD_REQUEST) # No sellers to notify
-
-    subject = f"New Order Received: {order.id}"
-    message = f"""
-    A new order has been placed with the following details:
-
-    - Order ID: {order.id}
-    - Total Price: {order.cart.total_price}
-    - Payment Method: {order.payment_method}
-    - Shipping Address: {order.shipping_address}
-
-    Please check the dashboard for more details.
-    """
-    # Send an email to each seller
-    for email in seller_emails:
-        send_plain_text_email(subject, message, [email])  # Assumes a helper function to send emails
-
-
-
-
 
 def verify_payment(tx_ref):
         url = "https://api.flutterwave.com/v3/transactions/verify"
@@ -364,7 +268,7 @@ class OrderViewSet(ModelViewSet):
     
     def get_permissions(self):
         if self.request.method in ["PATCH", "DELETE"]:
-            return [IsAdminUser()]
+            return [IsAdminUser(), IsSeller()]
         return [IsAuthenticated()]
     def create(self, request, *args, **kwargs):
         # Initialize serializer with user ID in the context
@@ -376,8 +280,8 @@ class OrderViewSet(ModelViewSet):
             order = serializer.save(payment_status='P')
 
             # Fetch item names and calculate total quantity
-            item_names = [item.product.name for item in order.items.all()]
-            total_quantity = sum(item.quantity for item in order.items.all())
+            item_names = [item.product.name for item in order.order_items.all()]
+            total_quantity = sum(item.quantity for item in order.order_items.all())
 
             # Prepare and send an order confirmation email if the user has an email
             if request.user.email:
@@ -396,6 +300,33 @@ class OrderViewSet(ModelViewSet):
                 Olaz Buy Team
                 """
                 send_mail(subject, message, 'no-reply@olazbuy.com', [request.user.email])
+            # Notify each seller involved in the order
+        seller_notifications = {}
+        for item in order.order_items.all():
+            seller = item.product.seller  # Assuming each product has a 'seller' attribute
+            if seller.email:  # Check if the seller has an email
+                print(f"Adding order for seller {seller.email}")
+                if seller.email not in seller_notifications:
+                    seller_notifications[seller.email] = []
+                seller_notifications[seller.email].append(item)
+        print(seller_notifications)
+        for seller_email, items in seller_notifications.items():
+            seller_item_names = [item.product.name for item in items]
+            seller_total_quantity = sum(item.quantity for item in items)
+            seller_subject = "New Order Notification"
+            seller_message = f"""
+            Hi {seller.email},
+
+            You have received a new order for your product(s). Here are the details:
+            - Item(s): {', '.join(seller_item_names)}
+            - Quantity: {seller_total_quantity}
+
+            Please prepare the items for shipping.
+
+            Regards,
+            Olaz Buy Team
+            """
+            send_mail(seller_subject, seller_message, 'no-reply@olazbuy.com', [seller_email])
 
             # Serialize the order data and return it in the response
             response_serializer = OrderSerializer(order)
@@ -1037,35 +968,7 @@ class ValidateOTPAndResetPassword(generics.GenericAPIView):
         cache.delete(f"password_reset_code_{email}")
 
         return Response({"success": "Password has been reset successfully."}, status=status.HTTP_200_OK)
-@receiver(post_save, sender=OrderItem)
-def send_order_notification_to_sellers(sender, instance, created, **kwargs):
-    if created:
-        order = instance.order  # Get the order that contains the order item
-        
-        # Group order items by seller
-        sellers = {}
-        for order_item in order.items.all():
-            seller = order_item.product.seller  # Get the seller of the product
-            if seller not in sellers:
-                sellers[seller] = []
-            sellers[seller].append(order_item.product)
 
-        # Notify each seller
-        for seller, products in sellers.items():
-            # Create a notification for the seller
-            Notification.objects.create(
-                recipient=seller,
-                message=f"Your products {', '.join([p.name for p in products])} have been ordered. Order ID: {order.id}."
-            )
-
-            # Optionally, you can also send an email notification
-            send_mail(
-                'Order Notification',
-                f"Your products {', '.join([p.name for p in products])} have been ordered. Order ID: {order.id}.",
-                'noreply@yourstore.com',
-                [seller.email],
-                fail_silently=False,
-            )
 class AddressFormView(viewsets.ViewSet):
     """
     A viewset to manage the address for the authenticated user.
@@ -1195,30 +1098,6 @@ class AddressFormView(viewsets.ViewSet):
         return Response({"message": "Address deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 
-class SellerDashboardViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
-
-    @action(detail=False, methods=['get'])
-    def orders(self, request):
-        seller = request.user
-        order_items = OrderItem.objects.filter(product__seller=seller)
-        serializer = SellerOrderItemSerializer(order_items, many=True)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['patch'])
-    def update_status(self, request, pk=None):
-        try:
-            order_item = OrderItem.objects.get(id=pk, product__seller=request.user)
-        except OrderItem.DoesNotExist:
-            return Response({"error": "Order item not found or you do not own this product."}, status=status.HTTP_404_NOT_FOUND)
-
-        delivery_status = request.data.get('delivery_status')
-        if delivery_status not in ['pending', 'processing', 'delivered']:
-            return Response({"error": "Invalid delivery status."}, status=status.HTTP_400_BAD_REQUEST)
-
-        order_item.delivery_status = delivery_status
-        order_item.save()
-        return Response({"message": "Delivery status updated successfully."})
 
 class CountryListView(ListAPIView):
     queryset = Country.objects.all()

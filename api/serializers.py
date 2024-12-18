@@ -445,18 +445,15 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    items = OrderItemSerializer(many=True, read_only=True)
-    item_names = serializers.SerializerMethodField()
-    payment_status = serializers.ChoiceField(choices=Order.PAYMENT_STATUS_CHOICES, default='P')  # Correct field name
-    shipping_address = serializers.PrimaryKeyRelatedField(queryset=Address.objects.all())
-
-
+    payment_status = serializers.ChoiceField(choices=Order.PAYMENT_STATUS_CHOICES)  # Correct field name
+    shipping_address = AddressSerializer()
+    order_items = OrderItemSerializer(many=True, read_only=True)
+    order_status = serializers.ChoiceField(choices=Order.ORDER_STATUS_CHOICES)
     class Meta:
         model = Order
-        fields = ['id', 'placed_at', 'payment_status', 'owner', 'items', 'item_names', 'shipping_address', 'payment_method']
+        fields = ['id', 'placed_at', 'payment_status', 'owner', 'shipping_address', 'payment_method', 'order_items','order_status']
 
     def get_item_names(self, obj):
-        # Fetch item names from related order items
         return [item.product.name for item in obj.items.all()]
 
     def validate(self, data):
@@ -550,26 +547,3 @@ class UpdateOrderSerializer(serializers.ModelSerializer):
         model = Order 
         fields = ["payment_choice"]
 
-class SellerOrderItemSerializer(serializers.ModelSerializer):
-    product_name = serializers.ReadOnlyField(source='product.name')
-    order_id = serializers.ReadOnlyField(source='order.id')
-    buyer_email = serializers.ReadOnlyField(source='order.user.email')  # Include if necessary
-    shipping_address = serializers.SerializerMethodField()
-    class Meta:
-        model = OrderItem
-        fields = ['id', 'order_id', 'product_name', 'quantity', 'delivery_status', 'buyer_email', 'shipping_address']
-        
-        def get_shipping_address(self, obj):
-            """
-            Get the shipping address associated with the order.
-            """
-            address = obj.order.shipping_address
-            if address:
-                return {
-                    "street": address.street_address,
-                    "city": address.local_government,
-                    "state": address.state,
-                    "country": address.country,
-                }
-            return None
-    

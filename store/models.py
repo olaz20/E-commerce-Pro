@@ -161,6 +161,7 @@ class Order(models.Model):
     payment_status = models.CharField(max_length=50, choices=PAYMENT_STATUS_CHOICES, default=PAYMENT_STATUS_PENDING)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     tx_ref = models.CharField(max_length=100, null=True, blank=True)
+    items = models.ManyToManyField('OrderItem', related_name='orders')
     def __str__(self):
         return self.payment_status
 
@@ -203,7 +204,7 @@ class Order(models.Model):
             models.Index(fields=['owner']),
         ]
 class OrderItem(models.Model):
-    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name = "items")
+    order = models.ForeignKey(Order, on_delete=models.PROTECT, related_name = "order_items")
     product = models.ForeignKey(Product, on_delete=models.PROTECT)
     quantity = models.PositiveSmallIntegerField()
     delivery_status = models.CharField(
@@ -275,13 +276,3 @@ class PasswordResetOTP(models.Model):
 
     def __str__(self):
         return f"OTP for {self.user.email} - {self.auth_code}"
-
-class Notification(models.Model):
-    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)  # Seller or Admin
-    message = models.TextField()
-    read = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"Notification for {self.recipient.username}"
-    
