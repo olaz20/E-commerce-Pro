@@ -148,7 +148,7 @@ python manage.py migrate
 ```bash
 python manage.py runserver
 ```
-
+-POSTMAN LINK  https://crimson-robot-501047.postman.co/workspace/New-Team-Workspace~b65e46e7-6d79-49c6-b3f2-d8eced2b90b8/collection/37670289-cf5d09cb-5763-4d84-8445-a6a7884a7139?action=share&creator=37670289&active-environment=37670289-7d4bb8cc-8e47-4ab9-8dff-d1978b3617c5
 ## Usage
 
 - Once the server is running, you can access the API at `http://127.0.0.1:8000/api/`.
