@@ -1,9 +1,10 @@
 import logging
 import os
+from itsdangerous import Signer
 
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import IsAuthenticated, AllowAny,  BasePermission, IsAuthenticatedOrReadOnly
-from .serializer  import RegisterSerializer
+from .serializer  import RegisterSerializer, ProfileSerializer,ResetPasswordEmailRequestSerializer
 from django.contrib.auth.models import User
 from rest_framework import generics, status
 from services import EmailService, CustomResponseMixin
@@ -50,7 +51,7 @@ class ResendEmailView(CustomResponseMixin, APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        serializer = ResendEmailSerializer(data=request.data)
+        serializer = ResetPasswordEmailRequestSerializer(data=request.data)
         user = serializer.is_valid(raise_exception=True)
 
         email_service = EmailService()

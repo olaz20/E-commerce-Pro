@@ -175,10 +175,7 @@ class CartSerializer(serializers.ModelSerializer):
         items = cart.items.all()
         total = sum(item.quantity * item.product.price for item in items if item.product)
         return total
-class ProfileSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Profile
-        fields = ["id", "name", "bio", "picture"]
+
 class ApproveSellerSerializer(serializers.ModelSerializer):
     """Serializer for approving a seller."""
     email = serializers.EmailField()

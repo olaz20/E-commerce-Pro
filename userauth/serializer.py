@@ -2,7 +2,7 @@ from django.contrib.auth.models import User, Group
 from rest_framework.validators import UniqueValidator
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
-
+from .models import Profile
 
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(
@@ -40,3 +40,15 @@ class RegisterSerializer(serializers.ModelSerializer):
             admin_group, _ = Group.objects.get_or_create(name='Admin')
             user.groups.add(admin_group)
         return User.objects.create_user(**validated_data)
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Profile
+        fields = ["id", "name", "bio", "picture"]
+
+class ResetPasswordEmailRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(min_length=2)
+
+    redirect_url = serializers.CharField(max_length=500, required=False, read_only=True)
+
+    class Meta:
+        fields = ['email']
