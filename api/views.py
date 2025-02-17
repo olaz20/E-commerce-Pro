@@ -536,59 +536,8 @@ class CartItemViewSet(ModelViewSet):
         else:
             return Response({"detail": "Product not found in the cart."}, status=status.HTTP_404_NOT_FOUND)
 
-class ProfileViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated , IsBuyer, IsSeller]
-    queryset = Profile.objects.all()
-    serializer_class = ProfileSerializer
-    parser_classes = (MultiPartParser, FormParser)
 
-class RegisterViewSet(generics.CreateAPIView):
-    queryset = User.objects.all()
-    permission_classes = [AllowAny]
-    serializer_class = RegisterSerializer
 
-    def post(self, request):
-        user_type = request.data.get('user_type')  # 'seller' or 'buyer'
-        serializer = self.get_serializer(data=request.data)
-        
-        if serializer.is_valid():
-            # Serialize and sign user data
-            user_data = serializer.validated_data
-            user_data.pop("confirm_password", None)  # Remove confirm_password
-            s = URLSafeTimedSerializer(settings.SECRET_KEY)
-            signed_data = s.dumps({"user_data": user_data, "user_type": user_type})
-            
-            
-            # Generate a random 6-digit authentication code
-            auth_code = random.randint(100000, 999999)
-
-            # Store auth code in cache (valid for 10 minutes)
-            email = user_data["email"]
-            cache.set(f"auth_code_{email}", auth_code, timeout=600)
-            cache.set(f"user_data_{email}", user_data, timeout=600)
-            # Generate email verification link          
-            username = user_data["username"]
-            current_site = get_current_site(request).domain
-            relative_link = reverse('email-verify')
-            absurl = f'http://{current_site}{relative_link}?token={signed_data}'
-            email_body = (f"Hi {username},\nUse the link below to verify your email:\n{absurl}\n\n"
-                        f"Authentication Code: {auth_code}\n"
-                       "Enter this code on the registration page to complete your registration."  )
-
-            # Send verification email
-            data = {
-                "email_body": email_body,
-                "to_email": email,
-                "email_subject": "Verify your email and authentication code",
-            }
-            Util.send_email(data)
-
-            return Response(
-                {"message": "Verification email sent! Please check your inbox."},
-                status=status.HTTP_201_CREATED,
-            )
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class VerifyEmailView(APIView):
     

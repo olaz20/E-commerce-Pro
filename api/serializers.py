@@ -213,52 +213,6 @@ class ApproveSellerSerializer(serializers.ModelSerializer):
 
 
 
-class RegisterSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(
-        required=True,
-        validators=[UniqueValidator(queryset=User.objects.all())]
-    )
-    password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
-    confirm_password = serializers.CharField(write_only=True, required=True)
-    user_type = serializers.ChoiceField(choices=[('buyer', 'Buyer'), ('seller', 'Seller')], required=True)
-
-    class Meta:
-        model = User
-        fields = ('username', 'email', 'password', 'confirm_password', 'user_type')
-
-    def validate(self, attrs):
-        # Check that password and confirm_password fields match
-        if attrs['password'] != attrs['confirm_password']:
-            raise serializers.ValidationError({"password": "Password fields didn't match."})
-        if User.objects.filter(email=attrs['email']).exists():
-            raise serializers.ValidationError({"email": "This email is already in use."})
-        if User.objects.filter(username=attrs['username']).exists():
-            raise serializers.ValidationError({"username": "This username is already taken."})
-        return attrs
-    def create(self, validated_data):
-        user_type = validated_data.pop('user_type')  # Extract user_type
-        password = validated_data.pop('password')
-        comfirm_password = validated_data.pop('confirm_password', None)
-        # Create user
-        user = User(
-            username=validated_data['username'],
-            email=validated_data['email']
-        )
-        user.set_password(password)
-        user.save()
-         # Assign user to the specified group
-         
-        if user_type == 'seller':
-            seller_group, _ = Group.objects.get_or_create(name='Seller')
-            user.groups.add(seller_group)
-        elif user_type == 'buyer':
-            buyer_group, _ = Group.objects.get_or_create(name='Buyer')
-            user.groups.add(buyer_group)
-        elif user.user_type == "admin":
-            admin_group, _ = Group.objects.get_or_create(name='Admin')
-            user.groups.add(admin_group)
-        return User.objects.create_user(**validated_data)
-         # Ensure we return the user instance here
 class EmailVerificationSerializer(serializers.ModelSerializer):
     token = serializers.CharField(max_length=555)
 
