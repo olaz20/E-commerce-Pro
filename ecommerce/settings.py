@@ -12,9 +12,8 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import os
 from pathlib import Path
 from datetime import timedelta
-from dotenv import load_dotenv
-load_dotenv()
-from decouple import config
+
+
 
 import environ
 
@@ -30,7 +29,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY')
+SECRET_KEY = env('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -92,11 +91,11 @@ WSGI_APPLICATION = 'ecommerce.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DATABASE_NAME'),
-        'USER': os.getenv('DATABASE_USER'),
-        'PASSWORD': os.getenv('DATABASE_PASSWORD'),
-        'HOST': os.getenv('DATABASE_HOST', 'localhost'),
-        'PORT': os.getenv('DATABASE_PORT', '5432'),
+        'NAME': env('DATABASE_NAME'),
+        'USER': env('DATABASE_USER'),
+        'PASSWORD': env('DATABASE_PASSWORD'),
+        'HOST': env('DATABASE_HOST', 'localhost'),
+        'PORT': env('DATABASE_PORT', '5432'),
     }
 }
 
@@ -189,9 +188,9 @@ CACHES = {
 
 FLW_SEC_KEY = env('FLW_SEC_KEY')
 
-ADMIN_USERNAME = config('ADMIN_USERNAME')
-ADMIN_PASSWORD = config('ADMIN_PASSWORD')
-ADMIN_EMAIL = config('ADMIN_EMAIL')
+ADMIN_USERNAME = ('ADMIN_USERNAME')
+ADMIN_PASSWORD = ('ADMIN_PASSWORD')
+ADMIN_EMAIL = ('ADMIN_EMAIL')
 CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:8000', 'https://yourdomain.com']
 MIGRATION_MODULES = {
     'app_name': None,  # Ensure the value is None to use the default migrations folder.
