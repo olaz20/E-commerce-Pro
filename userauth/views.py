@@ -266,6 +266,55 @@ class PasswordTokenCheckAPI(CustomResponseMixin, generics.GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message="Unexpected error occurred",
             )
+class VerifyCodeView(CustomResponseMixin, APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get("email")
+        code = request.data.get("code")
+
+        if not email or not code:
+            return self.custom_response(
+                status=status.HTTP_400_BAD_REQUEST,
+                message="Email and code are required.",
+            )
+
+        cached_code = cache.get(f"auth_code_{email}")
+        if not cached_code:
+            return self.custom_response(
+                status=status.HTTP_400_BAD_REQUEST,
+                message="Verification code expired or not found.",
+            )
+
+        if str(cached_code) != str(code):
+            return self.custom_response(
+                status=status.HTTP_400_BAD_REQUEST,
+                message="Invalid verification code.",
+            )
+
+        user_data = cache.get(f"user_data_{email}")
+
+        if not user_data:
+            return self.custom_response(
+                status=status.HTTP_400_BAD_REQUEST,
+                message="User data is missing or expired.",
+            )
+
+        User = get_user_model()
+        user = User.objects.filter(email=email).first()
+
+        if not user:
+            return self.custom_response(
+                status=status.HTTP_404_NOT_FOUND, message="user not found."
+            )
+        user.is_verified = True
+        user.save()
+        cache.delete(f"auth_code_{email}")
+        cache.delete(f"user_data_{email}")
+        return self.custom_response(
+            status=status.HTTP_201_CREATED,
+            message="Authentication code verified successfully. Your account has been activated.",
+        )
 
 
 class SetNewPasswordAPIView(CustomResponseMixin, generics.GenericAPIView):
