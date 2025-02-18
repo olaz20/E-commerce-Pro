@@ -3,6 +3,13 @@ from rest_framework.validators import UniqueValidator
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from .models import Profile
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework.validators import UniqueValidator
+from django.contrib.auth.hashers import check_password, make_password
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(
@@ -45,10 +52,92 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ["id", "name", "bio", "picture"]
 
+
+class ResendEmailSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate(self, attrs):
+        try:
+            user = User.objects.get(email=attrs["email"])
+
+            if user.is_active:
+                raise ValidationError(
+                    {"email": "Account is already verified."}
+                )
+
+        except User.DoesNotExist:
+            raise ValidationError(
+                {"email": "User with the provided email does not exist."}
+            )
+
+        return user
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        email = data.get("email")
+        password = data.get("password")
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Invalid email or password.")
+        if not check_password(password, user.password):
+            raise serializers.ValidationError("Invalid email, or password.")
+        if not user.is_active:
+            raise serializers.ValidationError("User account is disabled.")
+
+        return user
+
 class ResetPasswordEmailRequestSerializer(serializers.Serializer):
     email = serializers.EmailField(min_length=2)
 
-    redirect_url = serializers.CharField(max_length=500, required=False, read_only=True)
+    redirect_url = serializers.CharField(
+        max_length=500, required=False, read_only=True
+    )
 
     class Meta:
-        fields = ['email']
+        fields = ["email"]
+
+class SetNewPasswordSerializer(serializers.Serializer):
+    password = serializers.CharField(
+        min_length=6, max_length=68, write_only=True
+    )
+    token = serializers.CharField(min_length=1, write_only=True)
+    uidb64 = serializers.CharField(min_length=1, write_only=True)
+
+    class Meta:
+        fields = [
+            "password",
+            "token",
+            "uidb64",
+        ]
+
+    def validate(self, attrs):
+        try:
+            password = attrs.get("password")
+            token = attrs.get("token")
+            uidb64 = attrs.get("uidb64")
+
+            id = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(id=id)
+            if not PasswordResetTokenGenerator().check_token(user, token):
+                raise AuthenticationFailed("The reset link is invalid", 401)
+
+            user.set_password(password)
+            user.save()
+
+            return user
+        except Exception as e:
+            raise AuthenticationFailed("The reset link is invalid", 401)
+        
+
+class ResetPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    auth_code = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(min_length=8)
+
+    class Meta:
+        model = User
+        fields = ["email", "auth_code", "new_password"]

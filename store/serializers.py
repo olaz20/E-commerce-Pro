@@ -1,62 +1,11 @@
-from store.models import *
-from django.db import transaction
 from rest_framework import serializers
-from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
-from rest_framework.validators import UniqueValidator
-from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.models import User, Group
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
-from django.contrib.auth import get_user_model
-from rest_framework.exceptions import AuthenticationFailed
-from django.contrib.auth import get_user_model
-from django.utils.encoding import smart_str, force_str, smart_bytes, DjangoUnicodeDecodeError
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from rest_framework.exceptions import ValidationError
+from seller.models import Product
+from .models import (Cart, CartItem, Country, State, 
+                     LocalGovernment, Wishlist, Address, OrderItem,Order, ShippingFee)
+from django.contrib.auth.models import User
+from django.db import transaction
 
-User = get_user_model()
-class CategorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Category 
-        fields = ['category_id', 'title', 'slug']
-
-
-class ProductSerializer(serializers.ModelSerializer):
-    category = CategorySerializer()  # Nested serializer for read/write
-    avg_rating = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Product
-        fields = ['id', 'name', 'price', 'description', 'category', 'slug', 'image', 'inventory', 'flash_sales', 'top_deal', 'avg_rating', 'seller']
-
-    def get_avg_rating(self, obj):
-        # Access the dynamically annotated avg_rating or return None
-        return getattr(obj, 'avg_rating', None)
-
-    def create(self, validated_data):
-        # Pop out category data for handling separately
-        category_data = validated_data.pop('category', None)
-
-        # Get the logged-in user (the seller)
-        user = self.context['request'].user  # This gives the logged-in user
-
-        if category_data:
-            # Ensure the category exists or is created
-            category, created = Category.objects.get_or_create(**category_data)
-            validated_data['category'] = category
-
-        # Create the product instance, automatically associating the seller with the logged-in user
-        product = Product.objects.create(seller=user, **validated_data)
-        return product
-
-class ReviewSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source='user.username', read_only=True)
-    class Meta:
-        model = Review
-        fields = ['username',"review", "rating", "date_posted", "id"]
-    def create(self, validated_data):
-        product_id = self.context["product_id"]
-        return Review.objects.create(product_id = product_id,  **validated_data)
 
 
 class SimpleProductSerializer(serializers.ModelSerializer):
@@ -135,7 +84,6 @@ class UpdateCartItemSerializer(serializers.ModelSerializer):
         # Save the updated instance
         instance.save()
         return instance
-
 class CartItemDeleteSerializer(serializers.Serializer):
     product_id = serializers.UUIDField(write_only=True, required=True)
     
@@ -157,6 +105,7 @@ class CartItemDeleteSerializer(serializers.Serializer):
             return cart_item  # Return the deleted cart item (optional)
         else:
             raise ValidationError("Product not found in the cart.")  
+        
 class CartSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True)
     items = serializers.SerializerMethodField(method_name='get_items')
@@ -175,79 +124,8 @@ class CartSerializer(serializers.ModelSerializer):
         items = cart.items.all()
         total = sum(item.quantity * item.product.price for item in items if item.product)
         return total
-
-class ApproveSellerSerializer(serializers.ModelSerializer):
-    """Serializer for approving a seller."""
-    email = serializers.EmailField()
-    username= serializers.CharField(read_only=True)
-    id=serializers.UUIDField()
-    class Meta:
-        model = StoreUser
-        fields = ['id','email','username', 'is_approved']
-        read_only_fields = [ 'username']  # Ensure email cannot be modified
-        extra_kwargs = {
-            'is_approved': {'required': False},  # Prevent requiring this field in input
-        }
-
-    def update(self, instance, validated_data):
-        """
-        Custom update method to set `is_approved` to True.
-        """
-        instance.is_approved = True  # Force approval
-        instance.save(update_fields=['is_approved'])  # Save only `is_approved`
-        return instance
-
-    def validate(self, data):
-        """
-        Ensure no invalid changes to `is_approved`.
-        """
-        # Check if `is_approved` is provided and enforce it to be True
-        if 'is_approved' in data and data['is_approved'] is not True:
-            raise serializers.ValidationError(
-                {"is_approved": "Approval can only set the value to True."}
-            )
-        return data
-
-
-
-class EmailVerificationSerializer(serializers.ModelSerializer):
-    token = serializers.CharField(max_length=555)
-
-    class Meta:
-        model = User
-        fields = ['token']  
-class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
-    class Meta:
-        model = User
-        fields = ('email', 'password')
-    def validate(self, data):
-        email = data.get('email')
-        password = data.get('password')
-        user = authenticate(username=email, password=password)
-        # Find the user by email
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            raise serializers.ValidationError("Invalid email or password")
-
-        # Check the password
-        if not user.check_password(password):
-            raise serializers.ValidationError("Invalid email or password")
-
-        # Ensure user is active
-        if not user.is_active:
-            raise serializers.ValidationError("User account is disabled.")
-        
-        # Ensure the user is approved if they are a seller
-        if user.groups.filter(name="Seller").exists() and not getattr(user, 'is_approved', False):
-            raise serializers.ValidationError("Your seller account is not approved yet.")
-
-        return user  # Return the User instance for further processing
-    
 class WishlistSerializer(serializers.ModelSerializer):
-    products = ProductSerializer(many=True)
+    products = SimpleProductSerializer(many=True)
     username = serializers.CharField(source='user.username', read_only=True)
     class Meta:
         model = Wishlist
@@ -268,61 +146,6 @@ class WishlistCreateSerializer(serializers.ModelSerializer):
         if not Product.objects.filter(id__in=value).exists():
             raise serializers.ValidationError("One or more product IDs are invalid.")
         return value
-class AuthCodeSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    auth_code = serializers.CharField(max_length=6)
-    class Meta:
-        model = User
-        fields = ["auth_code"]
-        
-class ResetPasswordEmailRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField(min_length=2)
-
-    redirect_url = serializers.CharField(max_length=500, required=False, read_only=True)
-
-    class Meta:
-        fields = ['email']
-
-
-class SetNewPasswordSerializer(serializers.Serializer):
-    password = serializers.CharField(
-        min_length=6, max_length=68, write_only=True)
-    token = serializers.CharField(
-        min_length=1, write_only=True)
-    uidb64 = serializers.CharField(
-        min_length=1, write_only=True)
-    
-    class Meta:
-        fields = ['password', 'token', 'uidb64',]
-
-    def validate(self, attrs):
-        try:
-            password = attrs.get('password')
-            token = attrs.get('token')
-            uidb64 = attrs.get('uidb64')
-
-            id = force_str(urlsafe_base64_decode(uidb64))
-            user = User.objects.get(id=id)
-            if not PasswordResetTokenGenerator().check_token(user, token):
-                raise AuthenticationFailed('The reset link is invalid', 401)
-
-            user.set_password(password)
-            user.save()
-
-            return (user)
-        except Exception as e:
-            raise AuthenticationFailed('The reset link is invalid', 401)
-        return super().validate(attrs)
-
-
-class ResetPasswordSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    auth_code = serializers.CharField(max_length=6)
-    new_password = serializers.CharField(min_length=8)
-    class Meta:
-        model = User
-        fields = ['email', 'auth_code', 'new_password']
-
 class LocalGovernmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = LocalGovernment
@@ -382,11 +205,6 @@ class AddressSerializer(serializers.ModelSerializer):
         data['state'] = state_obj
         data['local_government'] = local_government_obj
         return data
-
-
-        
-    
-         
 class OrderItemSerializer(serializers.ModelSerializer):
     product = SimpleProductSerializer()
     class Meta:
@@ -497,4 +315,3 @@ class UpdateOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order 
         fields = ["payment_choice"]
-

@@ -1,12 +1,7 @@
-
 from rest_framework import serializers
-from .models import Seller
-from store.models import *
+from .models import Seller, Product, Category, Review
 from api.serializers import OrderSerializer
-from rest_framework.decorators import action
-from rest_framework import status
-from rest_framework.response import Response
-
+from store.models import OrderItem,Order
 # Seller Serializer
 class SellerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -82,3 +77,45 @@ class OrderStatusUpdateSerializer(serializers.ModelSerializer):
         instance.payment_status = validated_data.get('payment_status', instance.payment_status)
         instance.save()
         return instance
+    
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category 
+        fields = ['category_id', 'title', 'slug']
+
+class ProductSerializer(serializers.ModelSerializer):
+    category = CategorySerializer()  # Nested serializer for read/write
+    avg_rating = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ['id', 'name', 'price', 'description', 'category', 'slug', 'image', 'inventory', 'flash_sales', 'top_deal', 'avg_rating', 'seller']
+
+    def get_avg_rating(self, obj):
+        # Access the dynamically annotated avg_rating or return None
+        return getattr(obj, 'avg_rating', None)
+
+    def create(self, validated_data):
+        # Pop out category data for handling separately
+        category_data = validated_data.pop('category', None)
+
+        # Get the logged-in user (the seller)
+        user = self.context['request'].user  # This gives the logged-in user
+
+        if category_data:
+            # Ensure the category exists or is created
+            category, created = Category.objects.get_or_create(**category_data)
+            validated_data['category'] = category
+
+        # Create the product instance, automatically associating the seller with the logged-in user
+        product = Product.objects.create(seller=user, **validated_data)
+        return product
+class ReviewSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    class Meta:
+        model = Review
+        fields = ['username',"review", "rating", "date_posted", "id"]
+    def create(self, validated_data):
+        product_id = self.context["product_id"]
+        return Review.objects.create(product_id = product_id,  **validated_data)
+

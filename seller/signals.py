@@ -3,8 +3,6 @@ from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 from store.models import Cart, Wishlist
 from django.contrib.auth.signals import user_logged_in
-from store.models import StoreUser
-from  django.conf import settings
 from .serializers import *
 from rest_framework.response import Response
 @receiver(post_migrate)
@@ -30,9 +28,7 @@ def assign_user_to_group(user, role):
         group = Group.objects.get(name=role)
         user.groups.add(group)
     
-    # Create admin user with environment variables
-#user = StoreUser.objects.create_user(username=settings.ADMIN_USERNAME, password=settings.ADMIN_PASSWORD, user_type="admin",email=settings.ADMIN_EMAIL)
-#assign_user_to_group(user, "Admin")
+
 
 
 

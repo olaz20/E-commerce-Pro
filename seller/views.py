@@ -6,6 +6,9 @@ from store.models import *
 from api.serializers import OrderSerializer
 from api.views import *
 from rest_framework.exceptions import NotFound
+from services.permissions import IsSeller, IsBuyer
+from userauth.models import StoreUser
+
 class SellerViewSet(viewsets.ModelViewSet):
     queryset = Seller.objects.all()
     serializer_class = SellerSerializer
@@ -70,3 +73,55 @@ class SellerOrderViewSet(viewsets.ModelViewSet):
             "message": "Order updated successfully.",
             "order": OrderSerializer(order).data
         }, status=status.HTTP_200_OK)
+class ProductsViewSet(ModelViewSet):
+    queryset = Product.objects.all().annotate(avg_rating=Avg('review__rating'))
+    serializer_class = ProductSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = ProductFilter
+    search_fields = ['name', 'description']
+    ordering_fields = ['price', 'avg_rating']
+    pagination_class = PageNumberPagination
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            self.permission_classes = [IsAuthenticated, IsSeller]
+        else:
+            self.permission_classes = [AllowAny]
+        return super().get_permissions()
+
+class CategoryViewSet(ModelViewSet):
+    pagination_class = PageNumberPagination
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+
+class ReviewViewSet(ModelViewSet):
+    serializer_class = ReviewSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = ReviewFilter
+    search_fields = ['review']  # Or other relevant fields
+    ordering_fields = ['created_at']
+    pagination_class = PageNumberPagination
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            self.permission_classes = [IsAuthenticated]
+        else:
+            self.permission_classes = [AllowAny]
+        return super().get_permissions()
+    
+    def get_queryset(self):
+        return Review.objects.filter(product_id=self.kwargs["product_pk"])
+
+    def get_serializer_context(self):
+        return {"product_id": self.kwargs["product_pk"]}
+
+    def perform_create(self, serializer):
+        product_id = self.kwargs['product_pk']  # Get product ID from the URL
+        
+        # Check if the product exists
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({"error": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Save the review with the valid product_id
+        serializer.save(product=product, user=self.request.user)

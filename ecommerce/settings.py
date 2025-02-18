@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'api',
     'rest_framework',
     'django_filters',
+    'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'store',
     'seller',
@@ -65,6 +66,9 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = 'ecommerce.urls'
+
+
+AUTH_USER_MODEL = 'userauth.StoreUser'
 
 TEMPLATES = [
     {
@@ -94,8 +98,8 @@ DATABASES = {
         'NAME': env('DATABASE_NAME'),
         'USER': env('DATABASE_USER'),
         'PASSWORD': env('DATABASE_PASSWORD'),
-        'HOST': env('DATABASE_HOST', 'localhost'),
-        'PORT': env('DATABASE_PORT', '5432'),
+        'HOST': env('DATABASE_HOST'),
+        'PORT': env('DATABASE_PORT'),
     }
 }
 
@@ -181,7 +185,6 @@ EMAIL_HOST_USER =  env('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL =  env('DEFAULT_FROM_EMAIL')
 
-AUTH_USER_MODEL = 'store.StoreUser'
 
 CACHES = {
     "default": {
