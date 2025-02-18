@@ -1,32 +1,39 @@
 import logging
 import os
-from django.contrib.auth.backends import BaseBackend
-from jwt import ExpiredSignatureError
 
-from django.http import HttpResponsePermanentRedirect
-from itsdangerous import Signer
-from django.core.cache import cache
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.utils.http import urlsafe_base64_decode
-from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
-
-from rest_framework.viewsets import ModelViewSet
-from rest_framework.permissions import IsAuthenticated, AllowAny,  BasePermission, IsAuthenticatedOrReadOnly
-from .serializer import (RegisterSerializer, ProfileSerializer,
-    ResetPasswordEmailRequestSerializer, PasswordResetTokenGenerator,
-    ResetPasswordSerializer, LoginSerializer, SetNewPasswordSerializer)
-from django.contrib.auth.models import User
-from rest_framework import generics, status
-from services import EmailService, CustomResponseMixin
-from .models import Profile
-from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
-from rest_framework.parsers import MultiPartParser, FormParser
-from itsdangerous import TimestampSigner, BadSignature, SignatureExpired
-from itsdangerous.url_safe import URLSafeTimedSerializer
+from django.contrib.auth.backends import BaseBackend
+from django.contrib.auth.models import User
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.core.cache import cache
+from django.http import HttpResponsePermanentRedirect
 from django.utils.encoding import DjangoUnicodeDecodeError, smart_str
+from django.utils.http import urlsafe_base64_decode
+from itsdangerous import BadSignature, Signer
+from jwt import ExpiredSignatureError
+from rest_framework import generics, status
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import (
+    AllowAny,
+    IsAuthenticated,
+)
+from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
 
+from services import CustomResponseMixin, EmailService
+
+from .models import Profile
+from .serializer import (
+    LoginSerializer,
+    PasswordResetTokenGenerator,
+    ProfileSerializer,
+    RegisterSerializer,
+    ResetPasswordEmailRequestSerializer,
+    ResetPasswordSerializer,
+    SetNewPasswordSerializer,
+)
 
 logger = logging.getLogger(__file__)
 
@@ -37,16 +44,18 @@ class ProfileViewSet(ModelViewSet, CustomResponseMixin):
     serializer_class = ProfileSerializer
     parser_classes = (MultiPartParser, FormParser)
 
+
 class RegisterViewSet(generics.CreateAPIView, CustomResponseMixin):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
+
     def post(self, request):
-        user_type = request.data.get('user_type')  # 'seller' or 'buyer'
+        user_type = request.data.get("user_type")  # 'seller' or 'buyer'
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid(): 
-           user_data = serializer.validated_data
-        
+        if serializer.is_valid():
+            user_data = serializer.validated_data
+
         try:
             email_service = EmailService()
             email_service.send_signup_verification_email(request, user)
@@ -60,6 +69,8 @@ class RegisterViewSet(generics.CreateAPIView, CustomResponseMixin):
                 message=f"Failed to send email: {str(e)}",
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
 class ResendEmailView(CustomResponseMixin, APIView):
     permission_classes = [AllowAny]
 
@@ -68,14 +79,14 @@ class ResendEmailView(CustomResponseMixin, APIView):
         user = serializer.is_valid(raise_exception=True)
 
         email_service = EmailService()
-        email_service.send_signup_verification_email(
-            request, user, "email-verify"
-        )
+        email_service.send_signup_verification_email(request, user, "email-verify")
 
         return self.custom_response(
             status=status.HTTP_201_CREATED,
             message="Registration initiated. Please check your email to verify your account.",
         )
+
+
 class EmailVerifyView(CustomResponseMixin, APIView):
     permission_classes = [AllowAny]
 
@@ -112,6 +123,7 @@ class EmailVerifyView(CustomResponseMixin, APIView):
             message="Email successfully verified. Your account is now active."
         )
 
+
 class RequestPasswordEmail(CustomResponseMixin, generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = ResetPasswordEmailRequestSerializer
@@ -144,6 +156,7 @@ class RequestPasswordEmail(CustomResponseMixin, generics.GenericAPIView):
             message="No user found with this email address",
         )
 
+
 class LoginView(CustomResponseMixin, APIView):
     permission_classes = [AllowAny]
 
@@ -162,6 +175,7 @@ class LoginView(CustomResponseMixin, APIView):
                 "refreshToken": str(refresh),
             },
         )
+
 
 class LogoutView(CustomResponseMixin, APIView):
     permission_classes = [IsAuthenticated]
@@ -202,9 +216,11 @@ class LogoutView(CustomResponseMixin, APIView):
                 message=f"An unexpected error occurred: {str(e)}",
             )
 
+
 class CustomRedirect(HttpResponsePermanentRedirect):
     permission_classes = [AllowAny]
     allowed_schemes = [os.environ.get("APP_SCHEME"), "http", "https"]
+
 
 class PasswordTokenCheckAPI(CustomResponseMixin, generics.GenericAPIView):
     permission_classes = [AllowAny]
@@ -251,6 +267,7 @@ class PasswordTokenCheckAPI(CustomResponseMixin, generics.GenericAPIView):
                 message="Unexpected error occurred",
             )
 
+
 class SetNewPasswordAPIView(CustomResponseMixin, generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = SetNewPasswordSerializer
@@ -262,9 +279,8 @@ class SetNewPasswordAPIView(CustomResponseMixin, generics.GenericAPIView):
             data={"success": True, "message": "Password reset success"},
         )
 
-class ValidateOTPAndResetPassword(
-    CustomResponseMixin, generics.GenericAPIView
-):
+
+class ValidateOTPAndResetPassword(CustomResponseMixin, generics.GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = ResetPasswordSerializer
 
@@ -332,6 +348,8 @@ class ValidateOTPAndResetPassword(
         return self.custom_response(
             message="Password has been reset successfully.",
         )
+
+
 class VerifiedUserBackend(BaseBackend):
     def authenticate(self, request, username=None, password=None):
         try:

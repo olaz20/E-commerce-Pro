@@ -22,6 +22,4 @@ class CustomResponseRenderer(JSONRenderer):
             "data": data if data else None,
         }
 
-        return super().render(
-            response_data, accepted_media_type, renderer_context
-        )
+        return super().render(response_data, accepted_media_type, renderer_context)

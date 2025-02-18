@@ -1,35 +1,41 @@
 from django.contrib.auth.models import Group, Permission
+from django.contrib.auth.signals import user_logged_in
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
+
 from store.models import Cart, Wishlist
-from django.contrib.auth.signals import user_logged_in
-from .serializers import *
-from rest_framework.response import Response
+
+
+
 @receiver(post_migrate)
 def create_user_roles(sender, **kwargs):
-    admin_group, _ = Group.objects.get_or_create(name='Admin')
-    seller_group, _ = Group.objects.get_or_create(name='Seller')
-    buyer_group, _ = Group.objects.get_or_create(name='Buyer')
+    admin_group, _ = Group.objects.get_or_create(name="Admin")
+    seller_group, _ = Group.objects.get_or_create(name="Seller")
+    buyer_group, _ = Group.objects.get_or_create(name="Buyer")
     # Add permissions to groups
     admin_permissions = Permission.objects.all()
     admin_group.permissions.set(admin_permissions)
     # seller permission
     seller_permission = Permission.objects.filter(
-        codename__in=['add_product', 'change_product', 'delete_product','change_order', 'update_order_status']
+        codename__in=[
+            "add_product",
+            "change_product",
+            "delete_product",
+            "change_order",
+            "update_order_status",
+        ]
     )
     seller_group.permissions.set(seller_permission)
     # Buyer permissions: can view products and add to cart
     buyer_permissions = Permission.objects.filter(
-        codename__in=['view_product', 'add_order']
+        codename__in=["view_product", "add_order"]
     )
     buyer_group.permissions.set(buyer_permissions)
-    
+
+
 def assign_user_to_group(user, role):
-        group = Group.objects.get(name=role)
-        user.groups.add(group)
-    
-
-
+    group = Group.objects.get(name=role)
+    user.groups.add(group)
 
 
 @receiver(user_logged_in)
@@ -61,7 +67,8 @@ def merge_carts(sender, request, user, **kwargs):
 
             # Delete the session cart
             session_cart.delete()
-            
+
+
 @receiver(user_logged_in)
 def merge_wishlists(sender, request, user, **kwargs):
     """

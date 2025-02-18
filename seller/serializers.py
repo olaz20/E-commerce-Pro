@@ -1,19 +1,22 @@
 from rest_framework import serializers
-from .models import Seller, Product, Category, Review
-from api.serializers import OrderSerializer
-from store.models import OrderItem,Order
+
+from store.models import Order, OrderItem
+
+from .models import Category, Product, Review, Seller
+
+
 # Seller Serializer
 class SellerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Seller
-        fields = ['id', 'user', 'shop_name']
+        fields = ["id", "user", "shop_name"]
 
 
 # Order Item Serializer
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
-        fields = ['id', 'product', 'quantity']
+        fields = ["id", "product", "quantity"]
 
 
 # Order Serializer
@@ -23,11 +26,11 @@ class OrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Order
-        fields = ['id', 'placed_at', 'payment_status', 'items', 'shipping_address']
+        fields = ["id", "placed_at", "payment_status", "items", "shipping_address"]
 
     def get_shipping_address(self, obj):
         # Assuming Order has a foreign key to Address
-        if hasattr(obj, 'shipping_address') and obj.shipping_address:
+        if hasattr(obj, "shipping_address") and obj.shipping_address:
             return {
                 "id": obj.shipping_address.id,
                 "full_name": obj.shipping_address.full_name,
@@ -47,7 +50,7 @@ class SellerOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Seller
-        fields = ['id', 'shop_name', 'orders']
+        fields = ["id", "shop_name", "orders"]
 
     def get_orders(self, obj):
         """
@@ -61,27 +64,35 @@ class SellerOrderSerializer(serializers.ModelSerializer):
 
         # Step 3: Serialize these orders
         return OrderSerializer(orders, many=True).data
-    
-    
+
+
 class OrderStatusUpdateSerializer(serializers.ModelSerializer):
     order_status = serializers.ChoiceField(choices=Order.ORDER_STATUS_CHOICES)
-    payment_status = serializers.ChoiceField(choices=Order.PAYMENT_STATUS_CHOICES, required=False)
+    payment_status = serializers.ChoiceField(
+        choices=Order.PAYMENT_STATUS_CHOICES, required=False
+    )
 
     class Meta:
         model = Order
-        fields = ['order_status', 'payment_status']
+        fields = ["order_status", "payment_status"]
 
     def update(self, instance, validated_data):
         # Update only the fields that the seller can modify
-        instance.order_status = validated_data.get('order_status', instance.order_status)
-        instance.payment_status = validated_data.get('payment_status', instance.payment_status)
+        instance.order_status = validated_data.get(
+            "order_status", instance.order_status
+        )
+        instance.payment_status = validated_data.get(
+            "payment_status", instance.payment_status
+        )
         instance.save()
         return instance
-    
+
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
-        model = Category 
-        fields = ['category_id', 'title', 'slug']
+        model = Category
+        fields = ["category_id", "title", "slug"]
+
 
 class ProductSerializer(serializers.ModelSerializer):
     category = CategorySerializer()  # Nested serializer for read/write
@@ -89,33 +100,49 @@ class ProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'price', 'description', 'category', 'slug', 'image', 'inventory', 'flash_sales', 'top_deal', 'avg_rating', 'seller']
+        fields = [
+            "id",
+            "name",
+            "price",
+            "description",
+            "category",
+            "slug",
+            "image",
+            "inventory",
+            "flash_sales",
+            "top_deal",
+            "avg_rating",
+            "seller",
+        ]
 
     def get_avg_rating(self, obj):
         # Access the dynamically annotated avg_rating or return None
-        return getattr(obj, 'avg_rating', None)
+        return getattr(obj, "avg_rating", None)
 
     def create(self, validated_data):
         # Pop out category data for handling separately
-        category_data = validated_data.pop('category', None)
+        category_data = validated_data.pop("category", None)
 
         # Get the logged-in user (the seller)
-        user = self.context['request'].user  # This gives the logged-in user
+        user = self.context["request"].user  # This gives the logged-in user
 
         if category_data:
             # Ensure the category exists or is created
             category, created = Category.objects.get_or_create(**category_data)
-            validated_data['category'] = category
+            validated_data["category"] = category
 
         # Create the product instance, automatically associating the seller with the logged-in user
         product = Product.objects.create(seller=user, **validated_data)
         return product
+
+
 class ReviewSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source='user.username', read_only=True)
+    username = serializers.CharField(source="user.username", read_only=True)
+
     class Meta:
         model = Review
-        fields = ['username',"review", "rating", "date_posted", "id"]
+        fields = ["username", "review", "rating", "date_posted", "id"]
+
     def create(self, validated_data):
         product_id = self.context["product_id"]
-        return Review.objects.create(product_id = product_id,  **validated_data)
-
+        return Review.objects.create(product_id=product_id, **validated_data)
