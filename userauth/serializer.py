@@ -7,9 +7,11 @@ from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.validators import UniqueValidator
-
+from django.conf import settings
 from .models import Profile
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
 
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(
@@ -24,7 +26,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("username", "email", "password", "confirm_password", "user_type")
+        fields = ("username", "email", "password", "user_type")
 
     def validate(self, attrs):
         if User.objects.filter(email=attrs["email"]).exists():

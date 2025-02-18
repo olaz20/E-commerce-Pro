@@ -14,17 +14,19 @@ logger = logging.getLogger(__name__)
 
 
 def send_email_task(subject, recipient_email, template_name, context):
-    html_message = render_to_string(template_name, context)
-    email = EmailMessage(
-        subject=subject,
-        body=html_message,
-        to=[recipient_email],
-        from_email=context["from_email"],
-    )
-    email.content_subtype = "html"
-    email.send()
-
-
+    try:
+        html_message = render_to_string(template_name, context)
+        email = EmailMessage(
+            subject=subject,
+            body=html_message,
+            to=[recipient_email],
+            from_email=context["from_email"],
+        )
+        email.content_subtype = "html"
+        email.send()
+    except Exception as e:
+        logger.error(f"Failed to send email to {recipient_email}: {str(e)}")
+        raise  # Re-raise exception after logging it
 class EmailService:
     def __init__(self, default_sender=None):
         self.default_sender = default_sender or settings.DEFAULT_FROM_EMAIL
@@ -39,18 +41,21 @@ class EmailService:
         auth_code = get_random_string(length=6, allowed_chars="0123456789")
         cache.set(f"auth_code_{user.email}", auth_code, timeout=900)
         user_data = {
+            "user": user,
             "first_name": user.first_name,
             "email": user.email,
+            "auth_code": auth_code,
         }
         cache.set(f"user_data_{user.email}", user_data, timeout=900)
         context = {
+            "user": user,
             "first_name": first_name,
             "verification_url": verification_url,
             "auth_code": auth_code,
         }
         logger.info(f"Sending email to {user.email} with auth code {auth_code}")
         self.send_email(
-            subject="Naija Realtors Account Verification",
+            subject="Olaz Buy Account Verification",
             recipient_email=user.email,
             template_name="userauth/verification.html",
             context=context,

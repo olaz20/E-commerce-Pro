@@ -4,9 +4,10 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.text import slugify
+from services import Audit
 
 
-class Seller(models.Model):
+class Seller(Audit):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     shop_name = models.CharField(max_length=255)
     # Add any other fields you need
@@ -15,7 +16,7 @@ class Seller(models.Model):
         return self.shop_name
 
 
-class Category(models.Model):
+class Category(Audit):
     title = models.CharField(max_length=200)
     category_id = models.UUIDField(
         default=uuid.uuid4, editable=False, primary_key=True, unique=True
@@ -39,7 +40,7 @@ class Category(models.Model):
         return self.title
 
 
-class Product(models.Model):
+class Product(Audit):
     seller = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -53,7 +54,6 @@ class Product(models.Model):
     inventory = models.IntegerField(null=False, default=1)
     image = models.ImageField(upload_to="img", blank=True, null=True, default="")
     description = models.TextField()
-    uploaded_time = models.DateTimeField(auto_now_add=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     slug = models.SlugField(null=True, blank=True)
     category = models.ForeignKey(
@@ -61,7 +61,7 @@ class Product(models.Model):
         null=True,
         on_delete=models.SET_NULL,
         related_name="products",
-        to="store.category",
+        to="seller.category",
     )
     top_deal = models.BooleanField(default=False)
     flash_sales = models.BooleanField(default=False)
@@ -75,7 +75,7 @@ class Product(models.Model):
         return self.name
 
 
-class Review(models.Model):
+class Review(Audit):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     date_posted = models.DateTimeField(auto_now_add=True)
     review = models.TextField(blank=True, default="")

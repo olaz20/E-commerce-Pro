@@ -13,7 +13,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import os
 from datetime import timedelta
 from pathlib import Path
-
+import secrets
 import environ
 
 env = environ.Env()
@@ -27,8 +27,16 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = env("SECRET_KEY")
+# Check if the SECRET_KEY is set, and if not, generate a new one
+SECRET_KEY = env("SECRET_KEY", default=None)
 
+if SECRET_KEY is None:
+    # Generate a new SECRET_KEY
+    SECRET_KEY = secrets.token_urlsafe(50)
+    
+    # Save the new SECRET_KEY to the .env file if it's missing
+    with open(".env", "a") as f:
+        f.write(f"\nSECRET_KEY={SECRET_KEY}\n")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
@@ -44,13 +52,13 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "api",
     "rest_framework",
     "django_filters",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "store",
     "seller",
+    "userauth",
 ]
 
 MIDDLEWARE = [
@@ -151,13 +159,15 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.throttling.UserRateThrottle",
-        "rest_framework.throttling.AnonRateThrottle",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
     ],
+    "DEFAULT_THROTTLE_CLASSES": (  #  Move throttling classes here
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ),
     "DEFAULT_THROTTLE_RATES": {
         "user": "100/minute",  # 100 requests per minute per user
         "anon": "10/minute",  # 10 requests per minute for anonymous users

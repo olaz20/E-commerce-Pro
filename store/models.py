@@ -5,9 +5,10 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from seller.models import Product
+from services import Audit
 
 
-class Cart(models.Model):
+class Cart(Audit):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True
     )
@@ -29,7 +30,7 @@ class Cart(models.Model):
         return f"Cart for {self.user or self.session_id}"
 
 
-class CartItem(models.Model):
+class CartItem(Audit):
     cart = models.ForeignKey(
         Cart, on_delete=models.CASCADE, related_name="items", null=True, blank=True
     )
@@ -43,14 +44,14 @@ class CartItem(models.Model):
     quantity = models.PositiveSmallIntegerField(default=1)
 
 
-class Country(models.Model):
+class Country(Audit):
     name = models.CharField(max_length=100)
 
     def __str__(self):
         return self.name
 
 
-class State(models.Model):
+class State(Audit):
     country = models.ForeignKey(
         Country, related_name="states", on_delete=models.CASCADE
     )
@@ -60,7 +61,7 @@ class State(models.Model):
         return self.name
 
 
-class LocalGovernment(models.Model):
+class LocalGovernment(Audit):
     state = models.ForeignKey(
         State, related_name="local_governments", on_delete=models.CASCADE
     )
@@ -70,7 +71,7 @@ class LocalGovernment(models.Model):
         return self.name
 
 
-class ShippingFee(models.Model):
+class ShippingFee(Audit):
     lga = models.OneToOneField(
         LocalGovernment, on_delete=models.CASCADE, related_name="shipping_fee"
     )
@@ -80,7 +81,7 @@ class ShippingFee(models.Model):
         return f"Shipping Fee for {self.lga.name}: {self.fee}"
 
 
-class Address(models.Model):
+class Address(Audit):
     id = models.BigIntegerField(primary_key=True, auto_created=True)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="addresses"
@@ -97,7 +98,7 @@ class Address(models.Model):
         return f"{self.full_name} - {self.street_address}"
 
 
-class Order(models.Model):
+class Order(Audit):
     PAYMENT_STATUS_PENDING = "P"
     PAYMENT_STATUS_COMPLETE = "C"
     PAYMENT_STATUS_FAILED = "F"
@@ -187,7 +188,7 @@ class Order(models.Model):
         ]
 
 
-class OrderItem(models.Model):
+class OrderItem(Audit):
     order = models.ForeignKey(
         Order, on_delete=models.PROTECT, related_name="order_items"
     )
@@ -209,7 +210,7 @@ class OrderItem(models.Model):
         return self.quantity * self.product.price
 
 
-class Wishlist(models.Model):
+class Wishlist(Audit):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, blank=True, null=True
     )  # Optional for anonymous users

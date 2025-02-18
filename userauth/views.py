@@ -36,6 +36,8 @@ from .serializer import (
 )
 
 logger = logging.getLogger(__file__)
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 
 class ProfileViewSet(ModelViewSet, CustomResponseMixin):
