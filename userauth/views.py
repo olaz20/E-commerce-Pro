@@ -1,6 +1,6 @@
 import logging
 import os
-
+from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import User
@@ -46,21 +46,38 @@ class ProfileViewSet(ModelViewSet, CustomResponseMixin):
     serializer_class = ProfileSerializer
     parser_classes = (MultiPartParser, FormParser)
 
-
 class RegisterViewSet(generics.CreateAPIView, CustomResponseMixin):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
 
     def post(self, request):
-        user_type = request.data.get("user_type")  # 'seller' or 'buyer'
         serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            user_data = serializer.validated_data
+        if not serializer.is_valid():
+            return self.custom_response(
+                message="Invalid data",
+                data=serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        user_type_data = serializer.save()  # Get user data without saving it
 
+        # Send the email first
         try:
             email_service = EmailService()
-            email_service.send_signup_verification_email(request, user)
+            email_service.send_signup_verification_email(request, user_type_data['user'])
+
+            # Now that the email is sent, save the user
+            user = user_type_data['user']
+            user.save()
+
+            # Add the user to the correct group based on user_type
+            if user_type_data['user_type'] == "seller":
+                seller_group, _ = Group.objects.get_or_create(name="Seller")
+                user.groups.add(seller_group)
+            elif user_type_data['user_type'] == "buyer":
+                buyer_group, _ = Group.objects.get_or_create(name="Buyer")
+                user.groups.add(buyer_group)
 
             return self.custom_response(
                 status=status.HTTP_201_CREATED,
@@ -75,18 +92,36 @@ class RegisterViewSet(generics.CreateAPIView, CustomResponseMixin):
 
 class ResendEmailView(CustomResponseMixin, APIView):
     permission_classes = [AllowAny]
+    serializer_class = ResetPasswordEmailRequestSerializer
 
-    def post(self, request, *args, **kwargs):
-        serializer = ResetPasswordEmailRequestSerializer(data=request.data)
-        user = serializer.is_valid(raise_exception=True)
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
 
-        email_service = EmailService()
-        email_service.send_signup_verification_email(request, user, "email-verify")
+        if User.objects.filter(
+            email=email
+        ).exists():  # Change this construct to get_or_404
+            user = User.objects.get(email=email)
+
+            try:
+                email_service = EmailService()
+                email_service.send_password_reset_email(request, user)
+                return self.custom_response(
+                    status=status.HTTP_201_CREATED,
+                    message="Registration initiated. Please check your email to verify your account.",
+                )
+            except Exception as e:
+                return self.custom_response(
+                    message=f"Failed to send email: {str(e)}",
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
         return self.custom_response(
-            status=status.HTTP_201_CREATED,
-            message="Registration initiated. Please check your email to verify your account.",
+            status=status.HTTP_404_NOT_FOUND,
+            message="No user found with this email address",
         )
+
 
 
 class EmailVerifyView(CustomResponseMixin, APIView):
@@ -99,7 +134,7 @@ class EmailVerifyView(CustomResponseMixin, APIView):
             email = signer.unsign(token)
 
             user = get_user_model().objects.get(email=email)
-            user.is_active = True
+            user.is_verified = True
             user.save()
 
         except TypeError as ex:

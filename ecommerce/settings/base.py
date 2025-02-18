@@ -14,11 +14,12 @@ import os
 from datetime import timedelta
 from pathlib import Path
 import secrets
-import environ
+from environ import Env
+env = Env()
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-env = environ.Env()
-BASE_DIR = Path(__file__).resolve().parent.parent
-environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
+env.read_env(os.path.join(BASE_DIR, ".env"))
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 
@@ -30,13 +31,14 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 # Check if the SECRET_KEY is set, and if not, generate a new one
 SECRET_KEY = env("SECRET_KEY", default=None)
 
-if SECRET_KEY is None:
-    # Generate a new SECRET_KEY
+if not SECRET_KEY:
     SECRET_KEY = secrets.token_urlsafe(50)
-    
-    # Save the new SECRET_KEY to the .env file if it's missing
-    with open(".env", "a") as f:
-        f.write(f"\nSECRET_KEY={SECRET_KEY}\n")
+    env_file_path = os.path.join(BASE_DIR, ".env")
+
+    if os.path.exists(env_file_path):
+        with open(env_file_path, "a") as f:
+            f.write(f"\nSECRET_KEY={SECRET_KEY}\n")
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 

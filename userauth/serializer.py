@@ -10,13 +10,16 @@ from rest_framework.validators import UniqueValidator
 from django.conf import settings
 from .models import Profile
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 
 User = get_user_model()
 
+class ProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Profile
+        fields = ["id", "name", "bio", "picture"]
+
 class RegisterSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(
-        required=True, validators=[UniqueValidator(queryset=User.objects.all())]
-    )
     password = serializers.CharField(
         write_only=True, required=True, validators=[validate_password]
     )
@@ -47,23 +50,14 @@ class RegisterSerializer(serializers.ModelSerializer):
             email=validated_data["email"],
         )
         user.set_password(password)
-        user.save()
-        if user_type == "seller":
-            seller_group, _ = Group.objects.get_or_create(name="Seller")
-            user.groups.add(seller_group)
-        elif user_type == "buyer":
-            buyer_group, _ = Group.objects.get_or_create(name="Buyer")
-            user.groups.add(buyer_group)
-        elif user.user_type == "admin":
-            admin_group, _ = Group.objects.get_or_create(name="Admin")
-            user.groups.add(admin_group)
-        return User.objects.create_user(**validated_data)
 
+        # Don't save the user yet
+        user_type_data = {
+            "user_type": user_type,
+            "user": user
+        }
 
-class ProfileSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Profile
-        fields = ["id", "name", "bio", "picture"]
+        return user_type_data
 
 
 class ResendEmailSerializer(serializers.Serializer):
