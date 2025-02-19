@@ -19,4 +19,3 @@ class ReviewFilter(FilterSet):
                 "lte",
             ],  # Filter by exact rating, greater than or equal, and less than or equal
         }
-

@@ -2,12 +2,8 @@ import csv
 
 from django.core.management.base import BaseCommand
 
-from store.models import (
-    Country,  # Replace 'myapp' with your app name
-    LocalGovernment,
-    ShippingFee,
-    State,
-)
+from store.models import Country  # Replace 'myapp' with your app name
+from store.models import LocalGovernment, ShippingFee, State
 
 
 class Command(BaseCommand):

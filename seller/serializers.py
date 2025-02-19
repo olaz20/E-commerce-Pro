@@ -1,11 +1,12 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from store.models import Order, OrderItem
 
 from .models import Category, Product, Review, Seller
 
-from django.contrib.auth import get_user_model
 User = get_user_model()
+
 
 # Seller Serializer
 class SellerSerializer(serializers.ModelSerializer):

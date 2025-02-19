@@ -1,30 +1,32 @@
-from .serializers import OrderSerializer
-from rest_framework import viewsets
-from rest_framework.exceptions import NotFound
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action 
-from seller.serializers import  SellerSerializer,ReviewSerializer, CategorySerializer,ProductSerializer
-from services.permissions import IsSeller
-from store.models import Product,Order ,OrderItem
-from .models import Review, Category
-from userauth.models import StoreUser
-from services import CustomResponseMixin
-from .models import Seller
-from rest_framework import viewsets
-from rest_framework.viewsets import ModelViewSet
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status
-from django.db.models import Avg
-from rest_framework.pagination import PageNumberPagination
-from .filter import ProductFilter, ReviewFilter
-from rest_framework.filters import SearchFilter
-from services import CustomResponseRenderer
-from rest_framework.filters import OrderingFilter
-from rest_framework.parsers import MultiPartParser, FormParser
-
 from django.contrib.auth import get_user_model
+from django.db.models import Avg
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
+from rest_framework.filters import OrderingFilter, SearchFilter
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.viewsets import ModelViewSet
+
+from seller.serializers import (
+    CategorySerializer,
+    ProductSerializer,
+    ReviewSerializer,
+    SellerSerializer,
+)
+from services import CustomResponseMixin, CustomResponseRenderer
+from services.permissions import IsSeller
+from store.models import Order, OrderItem, Product
+from userauth.models import StoreUser
+
+from .filter import ProductFilter, ReviewFilter
+from .models import Category, Review, Seller
+from .serializers import OrderSerializer
+
 User = get_user_model()
+
 
 class SellerViewSet(viewsets.ModelViewSet):
     queryset = Seller.objects.all()
@@ -90,11 +92,10 @@ class SellerOrderViewSet(viewsets.ModelViewSet, CustomResponseMixin):
         order.save()
 
         return self.custom_response(
-            message= "Order updated successfully.",
-            data= OrderSerializer(order).data,
-           status=status.HTTP_200_OK)
-            
-        
+            message="Order updated successfully.",
+            data=OrderSerializer(order).data,
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProductsViewSet(ModelViewSet):
@@ -127,7 +128,7 @@ class ReviewViewSet(ModelViewSet):
     serializer_class = ReviewSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = ReviewFilter
-    search_fields = ["review"] 
+    search_fields = ["review"]
     ordering_fields = ["created_at"]
     pagination_class = PageNumberPagination
     renderer_classes = [CustomResponseRenderer]
@@ -153,7 +154,7 @@ class ReviewViewSet(ModelViewSet):
             product = Product.objects.get(id=product_id)
         except Product.DoesNotExist:
             return self.custom_response(
-                message= "Product not found.", status=status.HTTP_404_NOT_FOUND
+                message="Product not found.", status=status.HTTP_404_NOT_FOUND
             )
 
         serializer.save(product=product, user=self.request.user)

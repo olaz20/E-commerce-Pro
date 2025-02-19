@@ -1,23 +1,26 @@
+from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.db import IntegrityError
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.validators import UniqueValidator
-from django.conf import settings
+
 from .models import Profile
-from django.contrib.auth import get_user_model
-from django.db import IntegrityError
 
 User = get_user_model()
+
 
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ["id", "name", "bio", "picture"]
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
@@ -52,10 +55,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.set_password(password)
 
         # Don't save the user yet
-        user_type_data = {
-            "user_type": user_type,
-            "user": user
-        }
+        user_type_data = {"user_type": user_type, "user": user}
 
         return user_type_data
 

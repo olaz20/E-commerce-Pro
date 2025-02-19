@@ -2,6 +2,7 @@ import uuid
 
 import requests
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
@@ -13,17 +14,13 @@ from rest_framework.mixins import (
     ListModelMixin,
     RetrieveModelMixin,
 )
-from services import EmailService
-from rest_framework.permissions import (
-    AllowAny,
-    IsAuthenticated,
-)
-from services import CustomResponseRenderer
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
 from seller.models import Product
 from seller.serializers import ProductSerializer
+from services import CustomResponseMixin, CustomResponseRenderer, EmailService
 from services.permissions import IsAdmin, IsBuyer, IsOrderOwner, IsSeller
 from store.serializers import (
     AddCartItemSerializer,
@@ -53,9 +50,7 @@ from .models import (
     State,
     Wishlist,
 )
-from services import CustomResponseMixin
 
-from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
@@ -118,13 +113,16 @@ class OrderViewSet(ModelViewSet):
     http_method_names = ["get", "patch", "post", "delete", "options", "head"]
     renderer_classes = [CustomResponseRenderer]
     email_service = EmailService()
+
     @action(detail=True, methods=["POST"])
     def pay(self, request, pk):
         order = self.get_object()
         order.PAYMENT_STATUS_CHOICES = Order.PAYMENT_STATUS_PENDING
         order.save()
         self.email_service.send_payment_email(request.user, order)
-        return initiate_payment(request.user, order.total_price, request.user.email, str(order.id))
+        return initiate_payment(
+            request.user, order.total_price, request.user.email, str(order.id)
+        )
 
     @action(detail=False, methods=["POST"])
     def confirm_payment(self, request):
@@ -152,8 +150,9 @@ class OrderViewSet(ModelViewSet):
         order.save()
         self.email_service.send_payment_success_email(request.user, order)
 
-        return Response({"msg": "Payment successful", "data": OrderSerializer(order).data})
-
+        return Response(
+            {"msg": "Payment successful", "data": OrderSerializer(order).data}
+        )
 
     def get_permissions(self):
         if self.request.method in ["PATCH", "DELETE"]:
@@ -171,22 +170,21 @@ class OrderViewSet(ModelViewSet):
             # Save the order with the specified payment status
             order = serializer.save(payment_status="P")
             self.email_service.send_order_confirmation_email(request.user, order)
-            
+
             # Notify each seller involved in the order
         seller_notifications = {}
         for item in order.order_items.all():
-            seller = (
-                item.product.seller
-            )  # each product has a 'seller' attribute
+            seller = item.product.seller  # each product has a 'seller' attribute
             if seller.email:  # Check if the seller has an email
                 if seller.email not in seller_notifications:
                     seller_notifications[seller.email] = []
                 seller_notifications[seller.email].append(item)
         print(seller_notifications)
         for seller_email, items in seller_notifications.items():
-           self.email_service.send_seller_order_notification(seller_email, items) 
+            self.email_service.send_seller_order_notification(seller_email, items)
         response_serializer = OrderSerializer(order)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
     def get_serializer_class(self):
         """
         Returns the appropriate serializer class based on the HTTP method.
@@ -255,6 +253,7 @@ class CartItemViewSet(ModelViewSet):
     permission_classes = [AllowAny]
     http_method_names = ["get", "post", "patch", "delete"]
     renderer_classes = [CustomResponseRenderer]
+
     def get_queryset(self):
         user = self.request.user
 
@@ -353,6 +352,7 @@ class WishListViewSet(ModelViewSet):
     permission_classes = [AllowAny]
     http_method_names = ["get", "post", "delete"]
     renderer_classes = [CustomResponseRenderer]
+
     def get_queryset(self):
         user = self.request.user
         session_id = self.request.session.session_key
@@ -444,6 +444,7 @@ class AddressFormView(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, IsBuyer]
     renderer_classes = [CustomResponseRenderer]
+
     def get(self, request, *args, **kwargs):
         """
         Fetches all addresses for the authenticated user.
@@ -579,8 +580,10 @@ class CountryListView(ListAPIView):
     serializer_class = CountrySerializer
     renderer_classes = [CustomResponseRenderer]
 
+
 class StateListView(ListAPIView):
     renderer_classes = [CustomResponseRenderer]
+
     def get_queryset(self):
         country_id = self.kwargs["country_id"]
         return State.objects.filter(country_id=country_id)
@@ -590,6 +593,7 @@ class StateListView(ListAPIView):
 
 class LGAListView(ListAPIView):
     renderer_classes = [CustomResponseRenderer]
+
     def get_queryset(self):
         state_id = self.kwargs["state_id"]
         return LocalGovernment.objects.filter(state_id=state_id)
@@ -599,6 +603,7 @@ class LGAListView(ListAPIView):
 
 class ShippingFeeView(ListAPIView):
     renderer_classes = [CustomResponseRenderer]
+
     def get_queryset(self):
         lga_id = self.kwargs["lga_id"]
         return ShippingFee.objects.filter(lga_id=lga_id)

@@ -4,12 +4,14 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.text import slugify
+
 from services import Audit
 
 
 class Seller(Audit):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     shop_name = models.CharField(max_length=255)
+
     def __str__(self):
         return self.shop_name
 

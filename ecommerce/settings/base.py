@@ -11,10 +11,12 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 import os
+import secrets
 from datetime import timedelta
 from pathlib import Path
-import secrets
+
 from environ import Env
+
 env = Env()
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 

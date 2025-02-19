@@ -1,9 +1,9 @@
 import logging
 import os
-from django.contrib.auth.models import Group
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.backends import BaseBackend
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.core.cache import cache
 from django.http import HttpResponsePermanentRedirect
@@ -13,16 +13,13 @@ from itsdangerous import BadSignature, Signer
 from jwt import ExpiredSignatureError
 from rest_framework import generics, status
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import (
-    AllowAny,
-    IsAuthenticated,
-)
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from services import CustomResponseMixin, EmailService, CustomResponseRenderer
+from services import CustomResponseMixin, CustomResponseRenderer, EmailService
 
 from .models import Profile
 from .serializer import (
@@ -37,6 +34,7 @@ from .serializer import (
 
 logger = logging.getLogger(__file__)
 from django.contrib.auth import get_user_model
+
 User = get_user_model()
 
 
@@ -52,6 +50,7 @@ class RegisterViewSet(generics.CreateAPIView, CustomResponseMixin):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
+
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
@@ -60,23 +59,25 @@ class RegisterViewSet(generics.CreateAPIView, CustomResponseMixin):
                 data=serializer.errors,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         user_type_data = serializer.save()  # Get user data without saving it
 
         # Send the email first
         try:
             email_service = EmailService()
-            email_service.send_signup_verification_email(request, user_type_data['user'])
+            email_service.send_signup_verification_email(
+                request, user_type_data["user"]
+            )
 
             # Now that the email is sent, save the user
-            user = user_type_data['user']
+            user = user_type_data["user"]
             user.save()
 
             # Add the user to the correct group based on user_type
-            if user_type_data['user_type'] == "seller":
+            if user_type_data["user_type"] == "seller":
                 seller_group, _ = Group.objects.get_or_create(name="Seller")
                 user.groups.add(seller_group)
-            elif user_type_data['user_type'] == "buyer":
+            elif user_type_data["user_type"] == "buyer":
                 buyer_group, _ = Group.objects.get_or_create(name="Buyer")
                 user.groups.add(buyer_group)
 
@@ -122,7 +123,6 @@ class ResendEmailView(CustomResponseMixin, APIView):
             status=status.HTTP_404_NOT_FOUND,
             message="No user found with this email address",
         )
-
 
 
 class EmailVerifyView(CustomResponseMixin, APIView):
@@ -291,13 +291,13 @@ class PasswordTokenCheckAPI(CustomResponseMixin, generics.GenericAPIView):
                 status=status.HTTP_404_NOT_FOUND, message="User not found"
             )
 
-        except (
-            Exception
-        ) as e:  
+        except Exception as e:
             return self.custom_response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message="Unexpected error occurred",
             )
+
+
 class VerifyCodeView(CustomResponseMixin, APIView):
     permission_classes = [AllowAny]
 

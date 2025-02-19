@@ -6,7 +6,6 @@ from django.dispatch import receiver
 from store.models import Cart, Wishlist
 
 
-
 @receiver(post_migrate)
 def create_user_roles(sender, **kwargs):
     admin_group, _ = Group.objects.get_or_create(name="Admin")

@@ -27,6 +27,8 @@ def send_email_task(subject, recipient_email, template_name, context):
     except Exception as e:
         logger.error(f"Failed to send email to {recipient_email}: {str(e)}")
         raise  # Re-raise exception after logging it
+
+
 class EmailService:
     def __init__(self, default_sender=None):
         self.default_sender = default_sender or settings.DEFAULT_FROM_EMAIL
@@ -82,6 +84,7 @@ class EmailService:
             template_name="user_auth/password_reset.html",
             context=context,
         )
+
     def send_order_comfimation_email(self, user, order):
         """Send order confirmation email to user."""
         context = {
@@ -89,7 +92,7 @@ class EmailService:
             "order": order,
             "first_name": user.first_name.capitalize(),
             "item_names": [item.product.name for item in order.order_items.all()],
-            "total_price": order.total_price
+            "total_price": order.total_price,
         }
         self.send_email(
             subject="Order Confirmation",
@@ -97,6 +100,7 @@ class EmailService:
             template_name="shopping/order_confirmation.html",
             context=context,
         )
+
     def send_payment_email(self, user, order):
         """Send payment initiation email to user."""
         context = {
@@ -111,26 +115,28 @@ class EmailService:
             template_name="shoping/payment_initiated.html",
             context=context,
         )
+
     def send_payment_success_email(self, user, order):
-            """Send payment success email to user."""
-            context = {
-                "user": user,
-                "order": order,
-                "first_name": user.first_name.capitalize(),
-                "total_price": order.total_price,
-                "item_names": [item.product.name for item in order.order_items.all()],
-            }
-            self.send_email(
-                subject="Payment Successful",
-                recipient_email=user.email,
-                template_name="shoping/payment_success.html",
-                context=context,
-            )
+        """Send payment success email to user."""
+        context = {
+            "user": user,
+            "order": order,
+            "first_name": user.first_name.capitalize(),
+            "total_price": order.total_price,
+            "item_names": [item.product.name for item in order.order_items.all()],
+        }
+        self.send_email(
+            subject="Payment Successful",
+            recipient_email=user.email,
+            template_name="shoping/payment_success.html",
+            context=context,
+        )
+
     def send_seller_order_notification(self, seller_email, items):
         """Send new order notification to seller."""
         seller_item_names = [item.product.name for item in items]
         seller_total_quantity = sum(item.quantity for item in items)
-        
+
         context = {
             "seller_email": seller_email,
             "item_names": seller_item_names,
