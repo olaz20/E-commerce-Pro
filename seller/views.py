@@ -13,13 +13,18 @@ from .models import Seller
 from rest_framework import viewsets
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from django_filters.rest_framework import DjangoFilterBackend,  OrderingFilter
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status
 from django.db.models import Avg
 from rest_framework.pagination import PageNumberPagination
 from .filter import ProductFilter, ReviewFilter
 from rest_framework.filters import SearchFilter
 from services import CustomResponseRenderer
+from rest_framework.filters import OrderingFilter
+from rest_framework.parsers import MultiPartParser, FormParser
+
+from django.contrib.auth import get_user_model
+User = get_user_model()
 
 class SellerViewSet(viewsets.ModelViewSet):
     queryset = Seller.objects.all()
@@ -101,6 +106,7 @@ class ProductsViewSet(ModelViewSet):
     ordering_fields = ["price", "avg_rating"]
     pagination_class = PageNumberPagination
     renderer_classes = [CustomResponseRenderer]
+    parser_classes = (MultiPartParser, FormParser)
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:

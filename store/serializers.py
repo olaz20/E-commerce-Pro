@@ -18,6 +18,9 @@ from .models import (
     Wishlist,
 )
 
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
 
 class SimpleProductSerializer(serializers.ModelSerializer):
     class Meta:

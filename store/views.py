@@ -55,6 +55,10 @@ from .models import (
 )
 from services import CustomResponseMixin
 
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
+
 def verify_payment(tx_ref):
     url = "https://api.flutterwave.com/v3/transactions/verify"
     headers = {"Authorization": f"Bearer {settings.FLW_SEC_KEY}"}
