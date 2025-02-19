@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block content %}
+<p>Hi {{ first_name }},</p>
+<p>Thank you for your order! Here are the details:</p>
+<ul>
+    <li>Items: {{ item_names|join:", " }}</li>
+    <li>Total Price: ${{ total_price }}</li>
+</ul>
+<p>We’ll notify you when your order is shipped.</p>
+<p>Regards, <br> Olaz Buy Team</p>
+{% endblock %}

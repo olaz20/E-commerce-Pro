@@ -1,0 +1,18 @@
+{% extends "base_email.html" %}
+
+{% block content %}
+<p>Hi {{ first_name }},</p>
+
+<p>Your payment was successful! 🎉 Here’s a summary of your order:</p>
+
+<ul>
+    <li><strong>Items:</strong> {{ item_names|join:", " }}</li>
+    <li><strong>Total Price:</strong> ${{ total_price }}</li>
+</ul>
+
+<p>We will notify you once your order is shipped.</p>
+
+<p>Thank you for shopping with us!</p>
+
+<p>Best regards, <br> Olaz Buy Team</p>
+{% endblock %}

@@ -13,6 +13,7 @@ from rest_framework.mixins import (
     ListModelMixin,
     RetrieveModelMixin,
 )
+from services import EmailService
 from rest_framework.permissions import (
     AllowAny,
     IsAuthenticated,
@@ -112,31 +113,14 @@ class OrderViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated, IsBuyer, IsOrderOwner]
     http_method_names = ["get", "patch", "post", "delete", "options", "head"]
     renderer_classes = [CustomResponseRenderer]
+    email_service = EmailService()
     @action(detail=True, methods=["POST"])
     def pay(self, request, pk):
         order = self.get_object()
         order.PAYMENT_STATUS_CHOICES = Order.PAYMENT_STATUS_PENDING
         order.save()
-        amount = order.total_price
-        email = request.user.email
-        order_id = str(order.id)
-        subject = "Payment Initiated"
-        message = f"""
-        Hi {request.user.username},
-
-        You’ve initiated a payment for your order. Here are the details:
-        - Amount: #{amount}
-
-        We’ll notify you once your payment is confirmed.
-
-        Regards,
-        OLAZ BUY
-        """
-        if request.user.email:
-            send_plain_text_email(subject, message, [request.user.email])
-
-        return initiate_payment(request.user, amount, email, order_id)
-        return Response(response, status=200)
+        self.email_service.send_payment_email(request.user, order)
+        return initiate_payment(request.user, order.total_price, request.user.email, str(order.id))
 
     @action(detail=False, methods=["POST"])
     def confirm_payment(self, request):
@@ -162,33 +146,10 @@ class OrderViewSet(ModelViewSet):
             )
         order.PAYMENT_STATUS_CHOICES = Order.PAYMENT_STATUS_COMPLETE
         order.save()
-        serializer = OrderSerializer(order)
-        item_names = ", ".join(serializer.data["item_names"])
-        # Send plain-text payment confirmation email
-        subject = "Payment Successful"
-        message = f"""
-        Hi {request.user.username},
+        self.email_service.send_payment_success_email(request.user, order)
 
-        Your payment was successful! Here are the order details:
-        - Item: {item_names}
-        
-        - Total Price: ${order.total_price}
+        return Response({"msg": "Payment successful", "data": OrderSerializer(order).data})
 
-        We’ll notify you when your order is shipped or delivered.
-
-        Regards,
-        OLAZ BUY     
-        """ 
-        # dont forget to work on this 
-        # if request.user.email:
-        # try:
-        # send_plain_text_email(subject, message, [request.user.email])
-        # except Exception as e:
-        # Handle email sending failure
-        # logging.error(f"Failed to send email: {str(e)}")
-
-        data = {"msg": "payment was successful", "data": serializer.data}
-        return Response(data)
 
     def get_permissions(self):
         if self.request.method in ["PATCH", "DELETE"]:
@@ -205,69 +166,23 @@ class OrderViewSet(ModelViewSet):
         if serializer.is_valid(raise_exception=True):
             # Save the order with the specified payment status
             order = serializer.save(payment_status="P")
-
-            # Fetch item names and calculate total quantity
-            item_names = [item.product.name for item in order.order_items.all()]
-            total_quantity = sum(item.quantity for item in order.order_items.all())
-
-            # Prepare and send an order confirmation email if the user has an email
-            if request.user.email:
-                subject = "Order Confirmation"
-                message = f"""
-                Hi {request.user.username},
-
-                Thank you for your order! Here are the details:
-                - Item(s): {', '.join(item_names)}
-                - Quantity: {total_quantity}
-                - Total Price: ${order.total_price}
-
-                We’ll notify you when your order is shipped.
-
-                Regards,
-                Olaz Buy Team
-                """
-                send_mail(
-                    subject, message, "no-reply@olazbuy.com", [request.user.email]
-                )
+            self.email_service.send_order_confirmation_email(request.user, order)
+            
             # Notify each seller involved in the order
         seller_notifications = {}
         for item in order.order_items.all():
             seller = (
                 item.product.seller
-            )  # Assuming each product has a 'seller' attribute
+            )  # each product has a 'seller' attribute
             if seller.email:  # Check if the seller has an email
-                print(f"Adding order for seller {seller.email}")
                 if seller.email not in seller_notifications:
                     seller_notifications[seller.email] = []
                 seller_notifications[seller.email].append(item)
         print(seller_notifications)
         for seller_email, items in seller_notifications.items():
-            seller_item_names = [item.product.name for item in items]
-            seller_total_quantity = sum(item.quantity for item in items)
-            seller_subject = "New Order Notification"
-            seller_message = f"""
-            Hi {seller.email},
-
-            You have received a new order for your product(s). Here are the details:
-            - Item(s): {', '.join(seller_item_names)}
-            - Quantity: {seller_total_quantity}
-
-            Please prepare the items for shipping.
-
-            Regards,
-            Olaz Buy Team
-            """
-            send_mail(
-                seller_subject, seller_message, "no-reply@olazbuy.com", [seller_email]
-            )
-
-            # Serialize the order data and return it in the response
-            response_serializer = OrderSerializer(order)
-            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
-
-        # If serializer is not valid, return errors (raise_exception=True will raise validation errors automatically)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+           self.email_service.send_seller_order_notification(seller_email, items) 
+        response_serializer = OrderSerializer(order)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
     def get_serializer_class(self):
         """
         Returns the appropriate serializer class based on the HTTP method.

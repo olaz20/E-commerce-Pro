@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block content %}
+<p>Hi {{ seller_email }},</p>
+<p>You have received a new order for your product(s). Here are the details:</p>
+<ul>
+    <li>Items: {{ item_names|join:", " }}</li>
+    <li>Total Quantity: {{ total_quantity }}</li>
+</ul>
+<p>Please prepare the items for shipping.</p>
+<p>Regards, <br> Olaz Buy Team</p>
+{% endblock %}

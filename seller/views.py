@@ -13,16 +13,19 @@ from .models import Seller
 from rest_framework import viewsets
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from django_filters.rest_framework import DjangoFilterBackend,  SearchFilter, OrderingFilter
+from django_filters.rest_framework import DjangoFilterBackend,  OrderingFilter
 from rest_framework import status
 from django.db.models import Avg
 from rest_framework.pagination import PageNumberPagination
 from .filter import ProductFilter, ReviewFilter
+from rest_framework.filters import SearchFilter
+from services import CustomResponseRenderer
 
 class SellerViewSet(viewsets.ModelViewSet):
     queryset = Seller.objects.all()
     serializer_class = SellerSerializer
     permission_classes = [IsAuthenticated, IsSeller]
+    renderer_classes = [CustomResponseRenderer]
 
     def get_queryset(self):
         # Filter sellers based on the logged-in user (seller)
@@ -33,6 +36,7 @@ class SellerOrderViewSet(viewsets.ModelViewSet, CustomResponseMixin):
     queryset = Order.objects.all()  # Define the queryset
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated, IsSeller]
+    renderer_classes = [CustomResponseRenderer]
 
     def get_queryset(self):
         user = self.request.user
@@ -96,6 +100,7 @@ class ProductsViewSet(ModelViewSet):
     search_fields = ["name", "description"]
     ordering_fields = ["price", "avg_rating"]
     pagination_class = PageNumberPagination
+    renderer_classes = [CustomResponseRenderer]
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
@@ -109,15 +114,17 @@ class CategoryViewSet(ModelViewSet):
     pagination_class = PageNumberPagination
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+    renderer_classes = [CustomResponseRenderer]
 
 
 class ReviewViewSet(ModelViewSet):
     serializer_class = ReviewSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = ReviewFilter
-    search_fields = ["review"]  # Or other relevant fields
+    search_fields = ["review"] 
     ordering_fields = ["created_at"]
     pagination_class = PageNumberPagination
+    renderer_classes = [CustomResponseRenderer]
 
     def get_permissions(self):
         if self.action in ["create", "update", "partial_update", "destroy"]:
@@ -143,5 +150,4 @@ class ReviewViewSet(ModelViewSet):
                 message= "Product not found.", status=status.HTTP_404_NOT_FOUND
             )
 
-        # Save the review with the valid product_id
         serializer.save(product=product, user=self.request.user)

@@ -22,7 +22,7 @@ from rest_framework.viewsets import ModelViewSet
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from services import CustomResponseMixin, EmailService
+from services import CustomResponseMixin, EmailService, CustomResponseRenderer
 
 from .models import Profile
 from .serializer import (
@@ -45,12 +45,13 @@ class ProfileViewSet(ModelViewSet, CustomResponseMixin):
     queryset = Profile.objects.all()
     serializer_class = ProfileSerializer
     parser_classes = (MultiPartParser, FormParser)
+    renderer_classes = [CustomResponseRenderer]
+
 
 class RegisterViewSet(generics.CreateAPIView, CustomResponseMixin):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
     serializer_class = RegisterSerializer
-
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
@@ -268,23 +269,17 @@ class PasswordTokenCheckAPI(CustomResponseMixin, generics.GenericAPIView):
         redirect_url = request.GET.get("redirect_url", "http://localhost:3000")
 
         try:
-            # Decode the user ID
             user_id = smart_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(id=user_id)
-
-            # Validate the token
             if not PasswordResetTokenGenerator().check_token(user, token):
                 return CustomRedirect(
                     f"{redirect_url}?token_valid=False&message=Invalid or expired token"
                 )
-
-            # If token is valid, redirect with success parameters
             return CustomRedirect(
                 f"{redirect_url}?token_valid=True&message=Credentials Valid&uidb64={uidb64}&token={token}"
             )
 
         except DjangoUnicodeDecodeError:
-            # Handle decoding errors gracefully
             return self.custom_response(
                 status=status.HTTP_400_BAD_REQUEST,
                 message="Invalid UID encoding",
@@ -298,7 +293,7 @@ class PasswordTokenCheckAPI(CustomResponseMixin, generics.GenericAPIView):
 
         except (
             Exception
-        ) as e:  # Don't just catch all exceptions in one, handle each case
+        ) as e:  
             return self.custom_response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 message="Unexpected error occurred",
@@ -400,8 +395,6 @@ class ValidateOTPAndResetPassword(CustomResponseMixin, generics.GenericAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
                 message="Authentication code expired or not found.",
             )
-
-        # Convert to integer (safe since it was retrieved as a string)
         try:
             stored_auth_code = int(stored_auth_code)
         except ValueError:

@@ -1,0 +1,15 @@
+{% extends "base_email.html" %}
+
+{% block content %}
+<p>Hi {{ first_name }},</p>
+
+<p>Your payment process has been initiated successfully.</p>
+
+<ul>
+    <li><strong>Amount:</strong> ${{ amount }}</li>
+</ul>
+
+<p>Please complete the payment to proceed with your order. If you have already paid, please ignore this message.</p>
+
+<p>Best regards, <br> Olaz Buy Team</p>
+{% endblock %}
