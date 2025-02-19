@@ -29,7 +29,6 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = ["id", "placed_at", "payment_status", "items", "shipping_address"]
 
     def get_shipping_address(self, obj):
-        # Assuming Order has a foreign key to Address
         if hasattr(obj, "shipping_address") and obj.shipping_address:
             return {
                 "id": obj.shipping_address.id,

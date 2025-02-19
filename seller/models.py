@@ -10,8 +10,6 @@ from services import Audit
 class Seller(Audit):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     shop_name = models.CharField(max_length=255)
-    # Add any other fields you need
-
     def __str__(self):
         return self.shop_name
 
@@ -82,7 +80,6 @@ class Review(Audit):
     rating = models.IntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(5)]
     )
-    # name = models.CharField(max_length=50)   # we will changer to user later
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True
     )

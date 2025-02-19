@@ -17,6 +17,7 @@ from rest_framework.permissions import (
     AllowAny,
     IsAuthenticated,
 )
+from services import CustomResponseRenderer
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
@@ -51,7 +52,7 @@ from .models import (
     State,
     Wishlist,
 )
-
+from services import CustomResponseMixin
 
 def verify_payment(tx_ref):
     url = "https://api.flutterwave.com/v3/transactions/verify"
@@ -110,7 +111,7 @@ def initiate_payment(user, amount, email, order_id):
 class OrderViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated, IsBuyer, IsOrderOwner]
     http_method_names = ["get", "patch", "post", "delete", "options", "head"]
-
+    renderer_classes = [CustomResponseRenderer]
     @action(detail=True, methods=["POST"])
     def pay(self, request, pk):
         order = self.get_object()
@@ -176,8 +177,9 @@ class OrderViewSet(ModelViewSet):
         We’ll notify you when your order is shipped or delivered.
 
         Regards,
-        OLAZ BUY
-        """
+        OLAZ BUY     
+        """ 
+        # dont forget to work on this 
         # if request.user.email:
         # try:
         # send_plain_text_email(subject, message, [request.user.email])
@@ -333,7 +335,7 @@ class CartViewSet(
 class CartItemViewSet(ModelViewSet):
     permission_classes = [AllowAny]
     http_method_names = ["get", "post", "patch", "delete"]
-
+    renderer_classes = [CustomResponseRenderer]
     def get_queryset(self):
         user = self.request.user
 
@@ -431,7 +433,7 @@ class CartItemViewSet(ModelViewSet):
 class WishListViewSet(ModelViewSet):
     permission_classes = [AllowAny]
     http_method_names = ["get", "post", "delete"]
-
+    renderer_classes = [CustomResponseRenderer]
     def get_queryset(self):
         user = self.request.user
         session_id = self.request.session.session_key
@@ -522,7 +524,7 @@ class AddressFormView(viewsets.ViewSet):
     """
 
     permission_classes = [IsAuthenticated, IsBuyer]
-
+    renderer_classes = [CustomResponseRenderer]
     def get(self, request, *args, **kwargs):
         """
         Fetches all addresses for the authenticated user.
@@ -656,9 +658,10 @@ class AddressFormView(viewsets.ViewSet):
 class CountryListView(ListAPIView):
     queryset = Country.objects.all()
     serializer_class = CountrySerializer
-
+    renderer_classes = [CustomResponseRenderer]
 
 class StateListView(ListAPIView):
+    renderer_classes = [CustomResponseRenderer]
     def get_queryset(self):
         country_id = self.kwargs["country_id"]
         return State.objects.filter(country_id=country_id)
@@ -667,6 +670,7 @@ class StateListView(ListAPIView):
 
 
 class LGAListView(ListAPIView):
+    renderer_classes = [CustomResponseRenderer]
     def get_queryset(self):
         state_id = self.kwargs["state_id"]
         return LocalGovernment.objects.filter(state_id=state_id)
@@ -675,6 +679,7 @@ class LGAListView(ListAPIView):
 
 
 class ShippingFeeView(ListAPIView):
+    renderer_classes = [CustomResponseRenderer]
     def get_queryset(self):
         lga_id = self.kwargs["lga_id"]
         return ShippingFee.objects.filter(lga_id=lga_id)

@@ -1,16 +1,23 @@
-from api.serializers import OrderSerializer
-from api.views import *
+from .serializers import OrderSerializer
 from rest_framework import viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
-
-from seller.serializers import *
+from rest_framework.decorators import action 
+from seller.serializers import  SellerSerializer,ReviewSerializer, CategorySerializer,ProductSerializer
 from services.permissions import IsSeller
-from store.models import *
+from store.models import Product,Order ,OrderItem
+from .models import Review, Category
 from userauth.models import StoreUser
-
+from services import CustomResponseMixin
 from .models import Seller
-
+from rest_framework import viewsets
+from rest_framework.viewsets import ModelViewSet
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend,  SearchFilter, OrderingFilter
+from rest_framework import status
+from django.db.models import Avg
+from rest_framework.pagination import PageNumberPagination
+from .filter import ProductFilter, ReviewFilter
 
 class SellerViewSet(viewsets.ModelViewSet):
     queryset = Seller.objects.all()
@@ -22,28 +29,20 @@ class SellerViewSet(viewsets.ModelViewSet):
         return Seller.objects.filter(user=self.request.user)
 
 
-class SellerOrderViewSet(viewsets.ModelViewSet):
+class SellerOrderViewSet(viewsets.ModelViewSet, CustomResponseMixin):
     queryset = Order.objects.all()  # Define the queryset
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated, IsSeller]
 
     def get_queryset(self):
         user = self.request.user
-
         try:
             store_user = StoreUser.objects.get(id=user.id, user_type="seller")
         except StoreUser.DoesNotExist:
             raise NotFound("Seller profile not found for the current user.")
-
-        # Step 2: Get all the products created by the seller
         seller_products = Product.objects.filter(seller=user)
-
-        # Step 3: Get all order items associated with the seller's products
         order_items = OrderItem.objects.filter(product__in=seller_products)
-
-        # Step 4: Get all orders that contain these order items
         orders = Order.objects.filter(order_items__in=order_items).distinct()
-
         return orders
 
     @action(detail=True, methods=["patch"], url_path="update-status")
@@ -81,13 +80,12 @@ class SellerOrderViewSet(viewsets.ModelViewSet):
 
         order.save()
 
-        return Response(
-            {
-                "message": "Order updated successfully.",
-                "order": OrderSerializer(order).data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return self.custom_response(
+            message= "Order updated successfully.",
+            data= OrderSerializer(order).data,
+           status=status.HTTP_200_OK)
+            
+        
 
 
 class ProductsViewSet(ModelViewSet):
@@ -141,8 +139,8 @@ class ReviewViewSet(ModelViewSet):
         try:
             product = Product.objects.get(id=product_id)
         except Product.DoesNotExist:
-            return Response(
-                {"error": "Product not found."}, status=status.HTTP_404_NOT_FOUND
+            return self.custom_response(
+                message= "Product not found.", status=status.HTTP_404_NOT_FOUND
             )
 
         # Save the review with the valid product_id
