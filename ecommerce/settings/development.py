@@ -3,29 +3,25 @@ from .base import *
 DEBUG = True
 ALLOWED_HOSTS = ["*"]
 
+import os
+
+LOGGING_DIR = os.path.join(BASE_DIR, "logs")
+if not os.path.exists(LOGGING_DIR):
+    os.makedirs(LOGGING_DIR)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "{levelname} {asctime} {module} {message}",
-            "style": "{",
-        },
-    },
     "handlers": {
         "file": {
             "level": "ERROR",
             "class": "logging.FileHandler",
-            "filename": BASE_DIR / "logs/errors.log",
-            "formatter": "verbose",
+            "filename": os.path.join(LOGGING_DIR, "errors.log"),
         },
     },
-    "loggers": {
-        "contact_us": {
-            "handlers": ["file"],
-            "level": "ERROR",
-            "propagate": True,
-        },
+    "root": {
+        "handlers": ["file"],
+        "level": "ERROR",
     },
 }
 
