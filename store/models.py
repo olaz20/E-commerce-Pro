@@ -82,7 +82,7 @@ class ShippingFee(Audit):
 
 
 class Address(Audit):
-    id = models.BigIntegerField(primary_key=True, auto_created=True)
+    id = models.AutoField(primary_key=True)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="addresses"
     )
@@ -178,7 +178,7 @@ class Order(Audit):
     @property
     def total_price(self):
         # Calculate total price from items related to the order (assuming items is related name)
-        total = sum(item.quantity * item.product.price for item in self.items.all())
+        total = sum(item.quantity * item.product.price for item in self.order_items.all())
         return total
 
     class Meta:
@@ -206,7 +206,6 @@ class OrderItem(Audit):
 
     @property
     def total_price(self):
-        # Total price for a single OrderItem (product price * quantity)
         return self.quantity * self.product.price
 
 

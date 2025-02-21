@@ -2,7 +2,7 @@ import csv
 
 from django.core.management.base import BaseCommand
 
-from store.models import Country  # Replace 'myapp' with your app name
+from store.models import Country
 from store.models import LocalGovernment, ShippingFee, State
 
 
@@ -10,8 +10,7 @@ class Command(BaseCommand):
     help = "Load locations and shipping fees from a CSV file"
 
     def handle(self, *args, **kwargs):
-        file_path = r"C:\Users\hp\Olaz ecommerce project\ecommerce\store\data\location.csv"  # Path to your CSV file
-
+        file_path = r'C:\Users\olamo\nithub_ecommerce_project\E-commerce-Pro\store\data\location.csv'
         with open(file_path, mode="r") as file:
             reader = csv.DictReader(file)
             for row in reader:

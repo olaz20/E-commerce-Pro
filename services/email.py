@@ -85,8 +85,9 @@ class EmailService:
             context=context,
         )
 
-    def send_order_comfimation_email(self, user, order):
+    def send_order_confirmation_email(self, user, order):
         """Send order confirmation email to user."""
+        
         context = {
             "user": user,
             "order": order,
@@ -97,7 +98,7 @@ class EmailService:
         self.send_email(
             subject="Order Confirmation",
             recipient_email=user.email,
-            template_name="shopping/order_confirmation.html",
+            template_name="shoping/order_confirmation.html",
             context=context,
         )
 
@@ -132,13 +133,13 @@ class EmailService:
             context=context,
         )
 
-    def send_seller_order_notification(self, seller_email, items):
+    def send_seller_order_notification(self, seller_email, items, seller):
         """Send new order notification to seller."""
         seller_item_names = [item.product.name for item in items]
         seller_total_quantity = sum(item.quantity for item in items)
-
+        seller_first_name = seller.first_name
         context = {
-            "seller_email": seller_email,
+            "seller_first_name": seller_first_name,
             "item_names": seller_item_names,
             "total_quantity": seller_total_quantity,
         }

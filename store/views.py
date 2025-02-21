@@ -3,7 +3,6 @@ import uuid
 import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.mail import send_mail
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -21,7 +20,7 @@ from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from seller.models import Product
 from seller.serializers import ProductSerializer
 from services import CustomResponseMixin, CustomResponseRenderer, EmailService
-from services.permissions import IsAdmin, IsBuyer, IsOrderOwner, IsSeller
+from services.permissions import IsAdmin, IsBuyer, IsOwner, IsSeller
 from store.serializers import (
     AddCartItemSerializer,
     AddressSerializer,
@@ -81,7 +80,7 @@ def initiate_payment(user, amount, email, order_id):
         "tx_ref": str(uuid.uuid4()),
         "amount": str(amount),
         "currency": "NGN",
-        "redirect_url": "http:/127.0.0.1:8000/api/orders/confirm_payment/?o_id="
+        "redirect_url": "http:/127.0.0.1:8000/store/orders/confirm_payment/?o_id="
         + order_id,
         "meta": {
             "consumer_id": user.id,
@@ -109,9 +108,8 @@ def initiate_payment(user, amount, email, order_id):
 
 
 class OrderViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated, IsBuyer, IsOrderOwner]
+    permission_classes = [IsAuthenticated, IsBuyer, IsOwner]
     http_method_names = ["get", "patch", "post", "delete", "options", "head"]
-    renderer_classes = [CustomResponseRenderer]
     email_service = EmailService()
 
     @action(detail=True, methods=["POST"])
@@ -160,28 +158,24 @@ class OrderViewSet(ModelViewSet):
         return [IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
-        # Initialize serializer with user ID in the context
         serializer = CreateOrderSerializer(
             data=request.data, context={"user_id": request.user.id}
         )
-
-        # Validate the serializer
         if serializer.is_valid(raise_exception=True):
-            # Save the order with the specified payment status
             order = serializer.save(payment_status="P")
-            self.email_service.send_order_confirmation_email(request.user, order)
+            user= request.user
+            self.email_service.send_order_confirmation_email(user, order)
 
             # Notify each seller involved in the order
         seller_notifications = {}
         for item in order.order_items.all():
             seller = item.product.seller  # each product has a 'seller' attribute
-            if seller.email:  # Check if the seller has an email
+            if seller.email: 
                 if seller.email not in seller_notifications:
                     seller_notifications[seller.email] = []
                 seller_notifications[seller.email].append(item)
-        print(seller_notifications)
         for seller_email, items in seller_notifications.items():
-            self.email_service.send_seller_order_notification(seller_email, items)
+            self.email_service.send_seller_order_notification(seller_email, items, seller)
         response_serializer = OrderSerializer(order)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -212,9 +206,11 @@ class CartViewSet(
     DestroyModelMixin,
     GenericViewSet,
 ):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny, IsOwner]
     queryset = Cart.objects.all()
     serializer_class = CartSerializer
+    renderer_classes = [CustomResponseRenderer]
+
 
     @action(detail=False, methods=["get"])
     def get_or_create_cart(self, request):
@@ -247,10 +243,24 @@ class CartViewSet(
                     session_cart.delete()
             # Return the cart items associated with the current cart
             return Response(CartItemSerializer(cart.items.all(), many=True).data)
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        # Ensure only the owner can delete the cart
+        if request.user.is_authenticated:
+            if instance.user != request.user:
+                return Response({"error": "Unauthorized"}, status=403)
+        else:
+            session_id = request.session.session_key
+            if instance.session_id != session_id:
+                return Response({"error": "Unauthorized"}, status=403)
+
+        self.perform_destroy(instance)
+        return Response({"message": "Cart deleted successfully"}, status=204)
 
 
 class CartItemViewSet(ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny, IsOwner]
     http_method_names = ["get", "post", "patch", "delete"]
     renderer_classes = [CustomResponseRenderer]
 
@@ -349,7 +359,7 @@ class CartItemViewSet(ModelViewSet):
 
 
 class WishListViewSet(ModelViewSet):
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny, IsOwner]
     http_method_names = ["get", "post", "delete"]
     renderer_classes = [CustomResponseRenderer]
 

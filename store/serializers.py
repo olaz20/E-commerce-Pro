@@ -93,16 +93,14 @@ class UpdateCartItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CartItem
-        fields = ["id", "quantity"]  # Include the fields you want to update
+        fields = ["id", "quantity"]  
 
     def update(self, instance, validated_data):
         """
         Update an existing cart item with new values.
         """
-        # Update the quantity or other fields if necessary
-        instance.quantity = validated_data.get("quantity", instance.quantity)
 
-        # Save the updated instance
+        instance.quantity = validated_data.get("quantity", instance.quantity)
         instance.save()
         return instance
 
@@ -120,7 +118,6 @@ class CartItemDeleteSerializer(serializers.Serializer):
 
     def delete_item(self, cart, product_id):
         """Handles the deletion of a product from the cart."""
-        # Find the cart item that matches the product ID
         cart_item = CartItem.objects.filter(cart=cart, product_id=product_id).first()
 
         if cart_item:
@@ -143,7 +140,6 @@ class CartSerializer(serializers.ModelSerializer):
         fields = ["id", "user", "items", "session_id", "grand_total"]
 
     def get_items(self, cart):
-        # Simplify the item structure: only include item ID and name
         return [
             {"id": item.product.id, "name": item.product.name}
             for item in cart.items.all()
@@ -341,7 +337,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
 class CreateOrderSerializer(serializers.Serializer):
     cart_id = serializers.UUIDField()
-    shipping_address_id = serializers.IntegerField()  # Assuming it's a ForeignKey
+    shipping_address_id = serializers.IntegerField()  #  it's a ForeignKey
     payment_method = serializers.ChoiceField(choices=Order.PAYMENT_METHOD_CHOICES)
 
     def validate_shipping_address_id(self, shipping_address_id):

@@ -23,11 +23,10 @@ class IsBuyer(permissions.BasePermission):
         return request.user.groups.filter(name="Buyer").exists()
 
 
-class IsOrderOwner(permissions.BasePermission):
+class IsOwner(permissions.BasePermission):
     """
     Custom permission to only allow owners of an order to access or modify it.
     """
 
     def has_object_permission(self, request, view, obj):
-        # Check if the user making the request is the owner of the order
         return obj.owner == request.user
