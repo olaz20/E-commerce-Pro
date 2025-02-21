@@ -163,19 +163,21 @@ class OrderViewSet(ModelViewSet):
         )
         if serializer.is_valid(raise_exception=True):
             order = serializer.save(payment_status="P")
-            user= request.user
+            user = request.user
             self.email_service.send_order_confirmation_email(user, order)
 
             # Notify each seller involved in the order
         seller_notifications = {}
         for item in order.order_items.all():
             seller = item.product.seller  # each product has a 'seller' attribute
-            if seller.email: 
+            if seller.email:
                 if seller.email not in seller_notifications:
                     seller_notifications[seller.email] = []
                 seller_notifications[seller.email].append(item)
         for seller_email, items in seller_notifications.items():
-            self.email_service.send_seller_order_notification(seller_email, items, seller)
+            self.email_service.send_seller_order_notification(
+                seller_email, items, seller
+            )
         response_serializer = OrderSerializer(order)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -211,7 +213,6 @@ class CartViewSet(
     serializer_class = CartSerializer
     renderer_classes = [CustomResponseRenderer]
 
-
     @action(detail=False, methods=["get"])
     def get_or_create_cart(self, request):
         user = request.user
@@ -243,6 +244,7 @@ class CartViewSet(
                     session_cart.delete()
             # Return the cart items associated with the current cart
             return Response(CartItemSerializer(cart.items.all(), many=True).data)
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
 

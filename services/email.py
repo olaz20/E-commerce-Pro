@@ -87,7 +87,7 @@ class EmailService:
 
     def send_order_confirmation_email(self, user, order):
         """Send order confirmation email to user."""
-        
+
         context = {
             "user": user,
             "order": order,

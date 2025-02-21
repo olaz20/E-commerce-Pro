@@ -93,7 +93,7 @@ class UpdateCartItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CartItem
-        fields = ["id", "quantity"]  
+        fields = ["id", "quantity"]
 
     def update(self, instance, validated_data):
         """

@@ -178,7 +178,9 @@ class Order(Audit):
     @property
     def total_price(self):
         # Calculate total price from items related to the order (assuming items is related name)
-        total = sum(item.quantity * item.product.price for item in self.order_items.all())
+        total = sum(
+            item.quantity * item.product.price for item in self.order_items.all()
+        )
         return total
 
     class Meta:
