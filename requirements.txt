@@ -1,4 +1,5 @@
 asgiref==3.8.1
+attrs==25.1.0
 certifi==2024.8.30
 charset-normalizer==3.4.0
 Django==5.1.6
@@ -8,11 +9,14 @@ django-redis==5.4.0
 djangorestframework==3.15.2
 djangorestframework-simplejwt==5.3.1
 drf-nested-routers==0.94.1
+drf-spectacular==0.28.0
 drf-yasg==1.21.8
 gunicorn==23.0.0
 idna==3.10
 inflection==0.5.1
 itsdangerous==2.2.0
+jsonschema==4.23.0
+jsonschema-specifications==2024.10.1
 packaging==24.2
 pillow==11.0.0
 psycopg2==2.9.10
@@ -22,8 +26,11 @@ python-dotenv==1.0.1
 pytz==2024.2
 PyYAML==6.0.2
 redis==5.2.0
+referencing==0.36.2
 requests==2.32.3
+rpds-py==0.23.1
 sqlparse==0.5.1
+typing_extensions==4.12.2
 tzdata==2024.2
 uritemplate==4.1.1
 urllib3==2.2.3
